@@ -1,6 +1,7 @@
 /.git
 /node_modules
 .dockerignore
+npm-debug.log
 .env
 Dockerfile
 fly.toml
