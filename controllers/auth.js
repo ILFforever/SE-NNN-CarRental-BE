@@ -265,3 +265,58 @@ exports.deleteUser = async(req, res, next) => {
         });
     }
 };
+
+
+// @desc    Add a car to user's favorite list
+// @route   PUT /api/v1/auth/favorite/add
+// @access  Private
+exports.addFavoriteCar = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const { carID } = req.body;
+        if (!carID) {
+            return res.status(400).json({ success: false, message: "carID is required" });
+        }
+
+        // Add carID if it's not already in the list
+        if (!user.favorite_cars.includes(carID)) {
+            user.favorite_cars.push(carID);
+            await user.save();
+        }
+
+        res.status(200).json({ success: true, message: "Car added to favorites", data: user.favorite_cars });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+};
+
+// @desc    Remove a car from user's favorite list
+// @route   PUT /api/v1/auth/favorite/remove
+// @access  Private
+exports.removeFavoriteCar = async (req, res, next) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        const { carID } = req.body;
+        if (!carID) {
+            return res.status(400).json({ success: false, message: "carID is required" });
+        }
+
+        // Remove carID from favorite list
+        user.favorite_cars = user.favorite_cars.filter(id => id !== carID);
+        await user.save();
+
+        res.status(200).json({ success: true, message: "Car removed from favorites", data: user.favorite_cars });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, message: "Server Error" });
+    }
+};
