@@ -268,7 +268,7 @@ exports.deleteUser = async(req, res, next) => {
 
 
 // @desc    Add a car to user's favorite list
-// @route   PUT /api/v1/auth/favorite/add
+// @route   PUT /api/v1/auth/favorite
 // @access  Private
 exports.addFavoriteCar = async (req, res, next) => {
     try {
@@ -296,7 +296,7 @@ exports.addFavoriteCar = async (req, res, next) => {
 };
 
 // @desc    Remove a car from user's favorite list
-// @route   PUT /api/v1/auth/favorite/remove
+// @route   DELETE /api/v1/auth/favorite
 // @access  Private
 exports.removeFavoriteCar = async (req, res, next) => {
     try {

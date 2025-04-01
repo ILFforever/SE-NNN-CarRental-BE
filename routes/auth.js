@@ -12,9 +12,8 @@ router.post('/logout', protect, logout);
 router.get('/admins', protect, authorize('admin'), getAdmins);
 router.get('/users',protect, authorize('admin'), getUsers);
 
-router.post('/favorite/add', protect,  addFavoriteCar);
-router.delete('/favorite/remove',protect,  removeFavoriteCar);
-
+router.post('/favorite', protect,  addFavoriteCar);
+router.delete('/favorite',protect,  removeFavoriteCar);
 
 router.delete('/admins/:id', protect, authorize('admin'), deleteAdmin);
 router.delete('/users/:id', protect, authorize('admin'), deleteUser);

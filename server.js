@@ -25,12 +25,14 @@ const cars = require('./routes/cars');
 const rents = require('./routes/rents');
 const auth = require('./routes/auth');
 const provide = require('./routes/Car_Provider');
+const services = require('./routes/services');
 
 // Mount routers
 app.use('/api/v1/cars', cars);
 app.use('/api/v1/rents', rents);
 app.use('/api/v1/Car_Provider', provide);
 app.use('/api/v1/auth', auth);
+app.use('/api/v1/services', services);
 
 const PORT = process.env.PORT || 5000;
 

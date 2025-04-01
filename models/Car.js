@@ -43,9 +43,13 @@ const CarSchema = new mongoose.Schema({
         type: Number,
         required: [true, 'Please add daily rental rate']
     },
-    tier:{
+    tier: {
         type: Number,
         required: [true,'Please add a car tier']
+    },
+    service: {
+        type: [Number],
+        default: []
     },
     createdAt: {
         type: Date,
@@ -53,8 +57,8 @@ const CarSchema = new mongoose.Schema({
     }
 },
 {
-        toJSON : {virtuals : true},
-        toObject : {virtuals:true}
+    toJSON : {virtuals : true},
+    toObject : {virtuals:true}
 });
 
 // Create Car slug from the brand and model

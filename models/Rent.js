@@ -23,8 +23,7 @@ const RentSchema = new mongoose.Schema({
         //required: [true, 'Please specify the rental price']
     },
     additionalCharges: {
-        type: Number,
-        default: 0
+        type: Object
     },
     notes: {
         type: String
