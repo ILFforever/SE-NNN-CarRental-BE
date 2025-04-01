@@ -24,7 +24,7 @@ router
 router
     .route('/:id')
     .get(getCar)
-    .put(protect, authorize('admin'), updateCar)
-    .delete(protect, authorize('admin'), deleteCar);
+    .put(protect, authorize('admin', 'provider'), updateCar)
+    .delete(protect, authorize('admin', 'provider'), deleteCar);
 
 module.exports = router;
