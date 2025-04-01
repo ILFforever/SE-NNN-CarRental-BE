@@ -103,18 +103,53 @@ exports.getCar = async (req, res, next) => {
 //@route   POST /api/v1/cars
 //@access  Private
 exports.createCar = async(req, res, next) => {
+    try {
+        // Determine the provider ID based on who's making the request
+        let providerId;
+        
+        if (req.provider) {
+            // If it's a provider making the request, use their ID
+            providerId = req.provider.id;
+        } else if (req.user && req.user.role === 'admin' && req.body.provider_id) {
+            // If it's an admin, they can specify the provider_id
+            providerId = req.body.provider_id;
+        } else {
+            // If no valid provider ID can be determined
+            return res.status(400).json({
+                success: false,
+                error: 'Valid provider_id is required'
+            });
+        }
 
-    const provider = await car_provider.findById(req.body.provider_id);
-    
-    if (!provider) {
-        return res.status(404).json({
+        // Verify the provider exists
+        const provider = await car_provider.findById(providerId);
+        
+        if (!provider) {
+            return res.status(404).json({
+                success: false,
+                error: `Car provider not found`
+            });
+        }
+
+        // Create a new car object with the verified provider_id
+        const carData = {
+            ...req.body,
+            provider_id: providerId
+        };
+        
+        const car = await Car.create(carData);
+        
+        res.status(201).json({ 
+            success: true, 
+            data: car
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(400).json({ 
             success: false,
-            error: `Car provider not found`
+            message: err.message 
         });
     }
-    //console.log(req.body);
-    const car = await Car.create(req.body);
-    res.status(201).json({ success: true, data:car});
 };
 
 //@desc    Update car

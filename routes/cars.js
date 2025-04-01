@@ -20,8 +20,7 @@ router.use('/:carId/rents', rentRouter);
 router
     .route('/')
     .get(getCars)
-    .post(protect, authorize('admin'), createCar);
-
+    .post(protect, authorize('admin', 'provider'), createCar);
 router
     .route('/:id')
     .get(getCar)
