@@ -323,105 +323,220 @@ exports.deleteRent = asyncHandler(async (req, res, next) => {
 // @access  Private
 exports.completeRent = asyncHandler(async (req, res, next) => {
     let rent = await Rent.findById(req.params.id).populate({
-        path: 'car',
-        select: 'tier' // Ensure the tier field is included
+      path: 'car',
+      select: 'tier' // Ensure the tier field is included
     });
-    
-
+  
     if (!rent) {
-        return res.status(404).json({ success: false, message: `No rent with the id of ${req.params.id}` });
+      return res.status(404).json({
+        success: false,
+        message: `No rent with the id of ${req.params.id}`
+      });
     }
-
-    if (rent.user.toString() !== req.user.id && req.user.role !== 'admin') {
-        return res.status(401).json({ success: false, message: `User ${req.user.id} is not authorized to complete this rent` });
+  
+    // Check authorization:
+    // 1. User can complete their own rental
+    // 2. Admin can complete any rental
+    // 3. Provider can complete rentals for their cars
+    let isAuthorized = false;
+  
+    if (req.user) {
+      if (req.user.role === 'admin') {
+        // Admin can complete any rental
+        isAuthorized = true;
+      } else if (rent.user.toString() === req.user.id) {
+        // User can complete their own rental
+        isAuthorized = true;
+      }
+    } else if (req.provider) {
+      // For provider, check if the car belongs to them
+      const car = await Car.findById(rent.car);
+      
+      if (car && car.provider_id.toString() === req.provider.id) {
+        isAuthorized = true;
+      }
     }
-
+  
+    if (!isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to complete this rental'
+      });
+    }
+  
     if (rent.status === 'completed') {
-        return res.status(400).json({ success: false, message: `Rent has already been completed` });
+      return res.status(400).json({
+        success: false,
+        message: `Rent has already been completed`
+      });
     }
+  
     const today = new Date();
-    const actualReturnDate = today.toISOString(); // Converts to "YYYY-MM-DDTHH:mm:ss.sssZ" format
+    const actualReturnDate = today.toISOString();
     const returnDate = new Date(rent.returnDate);
-
+  
     let user = await User.findById(rent.user);
     if (user) {
-        user.total_spend += rent.price;
-        await user.save(); // This triggers pre-save middleware
+      user.total_spend += rent.price;
+      await user.save(); // This triggers pre-save middleware
     }
    
-    const carInfo = await Car.findByIdAndUpdate(rent.car, { available: true }, {new: true});
+    await Car.findByIdAndUpdate(rent.car, { available: true });
     let daysLate = 0;
     let lateFee = 0;
     if (today > returnDate) {
-        daysLate = Math.ceil((today - returnDate) / (1000 * 60 * 60 * 24));
-        lateFee = (rent.car.tier + 1) * 500 * daysLate;
+      daysLate = Math.ceil((today - returnDate) / (1000 * 60 * 60 * 24));
+      lateFee = (rent.car.tier + 1) * 500 * daysLate;
     } 
     const totalPrice = rent.price + lateFee;
-
+  
     rent = await Rent.findByIdAndUpdate(req.params.id, { 
-        status: 'completed', 
-        actualReturnDate: new Date(),
-        ...req.body
+      status: 'completed', 
+      actualReturnDate: new Date(),
+      ...req.body
     }, {
-        new: true,
-        runValidators: true
+      new: true,
+      runValidators: true
     });
-
-    const providerProfile = await Car_Provider.findByIdAndUpdate(
-        carInfo.provider_id,
-        { $inc: { completeRent: 1 } }, // Increment the counter
-        { new: true }
-    );
-
-    if (providerProfile.completeRent == 10) {
-        await Car_Provider.findByIdAndUpdate(
-            carInfo.provider_id,
-            { $set: { verified: true } }
-        );
-    }
-
+  
     res.status(200).json({
-        success: true,
-        late_by: daysLate > 0 ? daysLate : 0,
-        late_fee: lateFee > 0 ? lateFee : 0,
-        car_tier: rent.car.tier,
-        total_price: totalPrice,
-        data: rent,
+      success: true,
+      late_by: daysLate > 0 ? daysLate : 0,
+      late_fee: lateFee > 0 ? lateFee : 0,
+      car_tier: rent.car.tier,
+      total_price: totalPrice,
+      data: rent,
     });
-    
-});
+  });
+  
 
 // @desc    Admin confirmation of rent (change status from pending to active)
 // @route   PUT /api/v1/rents/:id/confirm
 // @access  Private/Admin
 exports.confirmRent = asyncHandler(async (req, res, next) => {
     let rent = await Rent.findById(req.params.id);
-
+  
     if (!rent) {
-        return res.status(404).json({ success: false, message: `No rent with the id of ${req.params.id}` });
+      return res.status(404).json({
+        success: false,
+        message: `No rent with the id of ${req.params.id}`
+      });
     }
-
-    if (req.user.role !== 'admin') {
-        return res.status(401).json({ success: false, message: `User is not authorized to confirm rentals. Admin access required.` });
+  
+    // Check authorization
+    // If admin, allow any confirmation
+    // If provider, only allow if the car belongs to them
+    if (req.user?.role !== 'admin') {
+      // If not admin, check if it's a provider
+      if (!req.provider) {
+        return res.status(403).json({
+          success: false,
+          message: 'Not authorized to confirm this rental'
+        });
+      }
+  
+      // Get the car to check if it belongs to this provider
+      const car = await Car.findById(rent.car);
+      
+      if (!car) {
+        return res.status(404).json({
+          success: false,
+          message: 'Car not found'
+        });
+      }
+      
+      // Check if the car belongs to this provider
+      if (car.provider_id.toString() !== req.provider.id) {
+        return res.status(403).json({
+          success: false,
+          message: 'You can only confirm rentals for your own cars'
+        });
+      }
     }
-
+  
     if (rent.status !== 'pending') {
-        return res.status(400).json({ success: false, message: `Only pending rentals can be confirmed. Current status: ${rent.status}` });
+      return res.status(400).json({
+        success: false,
+        message: `Only pending rentals can be confirmed. Current status: ${rent.status}`
+      });
     }
-
+  
     // Update the car's availability status to false
     await Car.findByIdAndUpdate(rent.car, { available: false });
-
+  
     // Set status to active
     rent = await Rent.findByIdAndUpdate(req.params.id, { 
-        status: 'active'
+      status: 'active'
     }, {
-        new: true,
-        runValidators: true
+      new: true,
+      runValidators: true
     });
-
+  
     res.status(200).json({
-        success: true,
-        data: rent
+      success: true,
+      data: rent
     });
-});
+  });
+  
+  // @desc    Cancel a rental (for admins and providers)
+// @route   PUT /api/v1/rents/:id/cancel
+// @access  Private/Admin/Provider
+exports.cancelRent = asyncHandler(async (req, res, next) => {
+    let rent = await Rent.findById(req.params.id);
+  
+    if (!rent) {
+      return res.status(404).json({
+        success: false,
+        message: `No rent with the id of ${req.params.id}`
+      });
+    }
+  
+    // Check authorization
+    let isAuthorized = false;
+  
+    if (req.user && req.user.role === 'admin') {
+      // Admin can cancel any rental
+      isAuthorized = true;
+    } else if (req.provider) {
+      // For provider, check if the car belongs to them
+      const car = await Car.findById(rent.car);
+      
+      if (car && car.provider_id.toString() === req.provider.id) {
+        isAuthorized = true;
+      }
+    }
+  
+    if (!isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to cancel this rental'
+      });
+    }
+  
+    // Only pending or active rentals can be cancelled
+    if (rent.status !== 'pending' && rent.status !== 'active') {
+      return res.status(400).json({
+        success: false,
+        message: `Only pending or active rentals can be cancelled. Current status: ${rent.status}`
+      });
+    }
+  
+    // If the rental was active, make the car available again
+    if (rent.status === 'active') {
+      await Car.findByIdAndUpdate(rent.car, { available: true });
+    }
+  
+    // Set status to cancelled
+    rent = await Rent.findByIdAndUpdate(req.params.id, { 
+      status: 'cancelled',
+      ...req.body // Allow additional fields to be updated
+    }, {
+      new: true,
+      runValidators: true
+    });
+  
+    res.status(200).json({
+      success: true,
+      data: rent
+    });
+  });

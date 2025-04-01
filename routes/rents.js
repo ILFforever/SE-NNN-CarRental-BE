@@ -1,3 +1,4 @@
+// Updated version of routes/rents.js
 const express = require('express');
 const { 
     getUserRents,
@@ -8,7 +9,8 @@ const {
     deleteRent, 
     completeRent,
     confirmRent,
-    getProviderRents  
+    getProviderRents,
+    cancelRent  // Add the new controller function
 } = require('../controllers/rents');
 
 const router = express.Router({ mergeParams: true });
@@ -31,8 +33,8 @@ router
 
 // Provider-only route - get rentals for provider's cars
 router
-.route('/provider')
-.get(getProviderRents);
+    .route('/provider')
+    .get(getProviderRents);
 
 // Individual rent routes
 router
@@ -41,14 +43,19 @@ router
     .put(updateRent)
     .delete(deleteRent);
 
-// Complete a rent (return car)
+// Complete a rent (return car) - now accessible by both admin and provider
 router
     .route('/:id/complete')
     .put(completeRent);
 
-// Admin confirmation route
+// Confirm route - now accessible by both admin and provider
 router
     .route('/:id/confirm')
-    .put(authorize('admin'), confirmRent);
+    .put(confirmRent);
+
+// Cancel route - new route for both admin and provider
+router
+    .route('/:id/cancel')
+    .put(cancelRent);
 
 module.exports = router;
