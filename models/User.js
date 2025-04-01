@@ -46,6 +46,10 @@ const UserSchema = new mongoose.Schema({
     tier:{
         type:Number,
         default: 0
+    },
+    favorite_cars: {
+        type: [String], // เก็บรายการรถที่ชอบ
+        default: []
     }
 });
 
