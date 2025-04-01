@@ -8,7 +8,8 @@ const {
     registerProvider,
     loginProvider,
     getCurrentProvider,
-    logoutProvider 
+    logoutProvider,
+    verifyProvider
 } = require('../controllers/Car_Provider');
 
 const router = express.Router();
@@ -28,7 +29,9 @@ router.route('/')
 // Routes with ID parameter
 router.route('/:id')
     .get(getCarProvider)
-    .put(protect, authorize('admin'), updateCarProvider)
+    .put(protect, authorize('provider', 'admin'), updateCarProvider)
     .delete(protect, authorize('admin'), deleteCarProvider);
 
+router.route('/:id/verify')
+    .post(protect, authorize('admin'), verifyProvider)
 module.exports = router;

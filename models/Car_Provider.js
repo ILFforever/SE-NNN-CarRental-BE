@@ -33,6 +33,8 @@ const CarProviderSchema = new mongoose.Schema({
     },
     resetPasswordToken: String,
     resetPasswordExpire: Date,
+    verified: Boolean,
+    completeRent: Number,
     createdAt: {
         type: Date,
         default: Date.now

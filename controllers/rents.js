@@ -1,6 +1,7 @@
 const Rent = require('../models/Rent');
 const Car = require('../models/Car');
 const User = require('../models/User');
+const Car_Provider = require('../models/Car_Provider');
 const asyncHandler = require('express-async-handler');
 
 // @desc    Get user's rents (for regular users)
@@ -232,7 +233,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
         await user.save(); // This triggers pre-save middleware
     }
    
-    await Car.findByIdAndUpdate(rent.car, { available: true });
+    const carInfo = await Car.findByIdAndUpdate(rent.car, { available: true }, {new: true});
     let daysLate = 0;
     let lateFee = 0;
     if (today > returnDate) {
@@ -250,6 +251,18 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
         runValidators: true
     });
 
+    const providerProfile = await Car_Provider.findByIdAndUpdate(
+        carInfo.provider_id,
+        { $inc: { completeRent: 1 } }, // Increment the counter
+        { new: true }
+    );
+
+    if (providerProfile.completeRent == 10) {
+        await Car_Provider.findByIdAndUpdate(
+            carInfo.provider_id,
+            { $set: { verified: true } }
+        );
+    }
 
     res.status(200).json({
         success: true,

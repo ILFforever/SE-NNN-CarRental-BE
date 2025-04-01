@@ -120,7 +120,9 @@ exports.registerProvider = asyncHandler(async (req, res) => {
         address,
         telephone_number,
         email,
-        password
+        password,
+        verified: false,
+        completeRent: 0
     });
 
     res.status(200).json({ success: true });
@@ -192,6 +194,35 @@ exports.logoutProvider = asyncHandler(async (req, res) => {
         success: true,
         data: {},
         message: 'Provider logged out successfully'
+    });
+});
+
+// @desc    Verify Provider from Administrator
+// @route   POST /api/providers/:id/verify
+// @access  Private
+exports.verifyProvider = asyncHandler(async (req, res) => {
+    const provider = await Car_Provider.findById(req.params.id);
+    let { verified } = req.body;
+    if (!provider) {
+        return res.status(404).json({
+            success: false,
+            error: `Car provider not found with id of ${req.params.id}`
+        });
+    }
+
+    if (verified === undefined) {
+        verified = true;
+    }
+
+    // Update verify status
+    const result = await Car_Provider.findByIdAndUpdate(req.params.id, { verified }, {
+        new: true,
+        runValidators: true
+    });
+
+    return res.status(200).json({
+        success: true,
+        data: result
     });
 });
 
