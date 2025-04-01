@@ -79,6 +79,122 @@ exports.getRent = asyncHandler(async (req, res, next) => {
     });
 });
 
+// Add this function to controllers/rents.js
+
+// @desc    Get rentals for provider's cars
+// @route   GET /api/v1/rents/provider
+// @access  Private/Provider
+exports.getProviderRents = asyncHandler(async (req, res, next) => {
+    // Only allow car providers to access this route
+    if (!req.provider) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only car providers can access this route'
+      });
+    }
+  
+    const providerId = req.provider.id;
+  
+    try {
+      // First, find all cars belonging to this provider
+      const providerCars = await Car.find({ provider_id: providerId });
+      
+      if (!providerCars || providerCars.length === 0) {
+        return res.status(200).json({
+          success: true,
+          count: 0,
+          data: []
+        });
+      }
+      
+      // Get car IDs
+      const carIds = providerCars.map(car => car._id);
+      
+      // Build query to find rentals for these cars
+      let query = Rent.find({ car: { $in: carIds } });
+      
+      // Apply filters if provided
+      if (req.query.status) {
+        query = query.find({ status: req.query.status });
+      }
+      
+      // Apply date filters if provided
+      if (req.query.startDate) {
+        query = query.find({ 
+          startDate: { $gte: new Date(req.query.startDate) } 
+        });
+      }
+      
+      if (req.query.endDate) {
+        query = query.find({ 
+          returnDate: { $lte: new Date(req.query.endDate) } 
+        });
+      }
+      
+      // Apply sorting
+      if (req.query.sort) {
+        const sortBy = req.query.sort.split(',').join(' ');
+        query = query.sort(sortBy);
+      } else {
+        query = query.sort('-createdAt'); // Default: newest first
+      }
+      
+      // Pagination
+      const page = parseInt(req.query.page, 10) || 1;
+      const limit = parseInt(req.query.limit, 10) || 25;
+      const startIndex = (page - 1) * limit;
+      const endIndex = page * limit;
+      const total = await Rent.countDocuments(query.getQuery());
+      
+      query = query.skip(startIndex).limit(limit);
+      
+      // Add relationships - populate car and user details
+      query = query.populate({
+        path: 'car',
+        select: 'license_plate brand model type color dailyRate tier'
+      }).populate({
+        path: 'user',
+        select: 'name email telephone_number'
+      });
+      
+      // Execute query
+      const rents = await query;
+      
+      // Prepare pagination info
+      const pagination = {};
+      
+      if (endIndex < total) {
+        pagination.next = {
+          page: page + 1,
+          limit
+        };
+      }
+      
+      if (startIndex > 0) {
+        pagination.prev = {
+          page: page - 1,
+          limit
+        };
+      }
+      
+      // Send response
+      res.status(200).json({
+        success: true,
+        count: rents.length,
+        pagination,
+        totalCount: total,
+        data: rents
+      });
+    } catch (err) {
+      console.error(`Error fetching provider rentals: ${err.message}`);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while fetching provider rentals'
+      });
+    }
+  });
+
+  
 // @desc    Add rent
 // @route   POST /api/v1/rents
 // @access  Private

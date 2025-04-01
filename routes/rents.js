@@ -7,7 +7,8 @@ const {
     updateRent, 
     deleteRent, 
     completeRent,
-    confirmRent
+    confirmRent,
+    getProviderRents  
 } = require('../controllers/rents');
 
 const router = express.Router({ mergeParams: true });
@@ -27,6 +28,11 @@ router
 router
     .route('/all')
     .get(authorize('admin'), getAllRents);
+
+// Provider-only route - get rentals for provider's cars
+router
+.route('/provider')
+.get(getProviderRents);
 
 // Individual rent routes
 router
