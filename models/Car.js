@@ -48,7 +48,7 @@ const CarSchema = new mongoose.Schema({
         required: [true,'Please add a car tier']
     },
     service: {
-        type: [Number],
+        type: [String],
         default: []
     },
     createdAt: {

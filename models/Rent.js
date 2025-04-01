@@ -38,6 +38,10 @@ const RentSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
+    service: {
+        type: [String],
+        default: []
+    },
     createdAt: {
         type: Date,
         default: Date.now
