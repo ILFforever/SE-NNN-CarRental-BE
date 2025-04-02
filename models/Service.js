@@ -10,6 +10,10 @@ const ServiceSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    description: {
+        type: String,
+        require: [true, 'Please add description']
+    },
     rate: {
         type: Number,
         required: [true, 'Please add service rate']
