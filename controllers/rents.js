@@ -222,9 +222,9 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         return res.status(400).json({ success: false, message: `User with ID ${req.body.user} already has 3 active rentals` });
     }
 
-    const { car: carId, startDate, returnDate } = req.body;
+    const { car: carId, startDate, returnDate, price } = req.body;
     
-    if (!carId || !startDate || !returnDate) {
+    if (!carId || !startDate || !returnDate || !price) {
         return res.status(400).json({ success: false, message: 'Please provide a car ID, start date, and end date' });
     }
 
@@ -257,8 +257,8 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         return res.status(400).json({ success: false, message: 'End date must be after start date' });
     }
 
-    const totalPrice = duration * car.dailyRate;
-    req.body.price = totalPrice;
+    //const totalPrice = duration * car.dailyRate;
+    req.body.price = price;
     req.body.startDate = start;
     req.body.returnDate = end;
 
@@ -266,7 +266,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     await Car.findByIdAndUpdate(rent.car, { available: false });
     res.status(201).json({
         success: true,
-        totalPrice: totalPrice,
+        totalPrice: price,
         data: rent
     });
 });
