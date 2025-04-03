@@ -1,6 +1,9 @@
 const Rent = require('../models/Rent');
 const Car = require('../models/Car');
 const car_provider = require('../models/Car_Provider');
+const { generateFileHash } = require('../utility/generateHash');
+const { BUCKET_NAME, r2Client } = require('../config/r2');
+const logs = require('../utility/logs');
 
 exports.getCars = async (req, res, next) => {
     try {
@@ -131,10 +134,41 @@ exports.createCar = async(req, res, next) => {
             });
         }
 
+        let uploadList;
+        let uploadedFiles;
+        // Handle image upload
+        try {
+            if (req.files) {
+                uploadList = req.files.map((file) => {
+                    const uploadFileName = generateFileHash(file);
+                    const params = {
+                        Bucket: BUCKET_NAME,
+                        Key: `images/${uploadFileName}`,
+                        Body: file.buffer,
+                        ContentType: file.mimetype,
+                    }
+
+                    return r2Client.putObject(params).promise()
+                    .then(() => {
+                        logs.info(`File uploaded successfully: ${uploadFileName}`);
+                        return uploadFileName;
+                    })
+                })
+
+                uploadedFiles = await Promise.all(uploadList);
+            }
+        } catch (err) {
+            return res.status(500).json({
+                success: false,
+                error: 'Error uploading images'
+            });
+        }
+
         // Create a new car object with the verified provider_id
         const carData = {
             ...req.body,
-            provider_id: providerId
+            provider_id: providerId,
+            images: uploadedFiles
         };
         
         const car = await Car.create(carData);
