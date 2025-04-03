@@ -1,3 +1,4 @@
+const logs = require('../utility/logs');
 require('dotenv').config();
 const S3 = require('aws-sdk/clients/s3');
 
@@ -12,8 +13,7 @@ const r2Client = new S3({
     signatureVersion: "v4"
 });
 
-console.log("S3 Client Initialized:", r2Client.config);
-
-const BUCKET_NAME = "blob-ngixx";
+const BUCKET_NAME = process.env.R2_BUCKET_NAME;
+logs.system(`S3 Client Initialized`);
 
 module.exports = { r2Client, BUCKET_NAME };

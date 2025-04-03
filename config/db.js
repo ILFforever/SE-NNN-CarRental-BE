@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const logs = require('../utility/logs');
 
 // Connect with MongoDB
 const connectDB = async () => {
@@ -11,10 +12,10 @@ const connectDB = async () => {
       socketTimeoutMS: 45000, // Close sockets after 45s of inactivity
     });
 
-    console.log(`MongoDB Connected: ${conn.connection.host}`);
+    logs.system(`MongoDB Connected: ${conn.connection.host}`);
     return conn;
   } catch (error) {
-    console.error(`Error connecting to MongoDB: ${error.message}`);
+    logs.error(`Error connecting to MongoDB: ${error.message}`);
     // Don't exit the process in a serverless environment, handle gracefully
     throw error;
   }
