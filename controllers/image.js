@@ -63,3 +63,44 @@ exports.deleteImage = asyncHandler(async (req, res, next) => {
         });
     }
 })
+
+exports.uploadMultipleImages = asyncHandler(async (req, res, next) => {
+    if (!req.files) {
+        return res.status(400).json({
+            success: false,
+            message: 'No files uploaded.',
+        });
+    }
+
+    try {
+        const uploadList = req.files.map((file) => {
+            const uploadFileName = generateFileHash(file);
+            const params = {
+            Bucket: BUCKET_NAME,
+            Key: `images/${uploadFileName}`,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+            };
+
+            return r2Client.putObject(params).promise()
+            .then(() => {
+                logs.info(`File uploaded successfully: ${uploadFileName}`);
+                return `https://blob.ngixx.me/images/${uploadFileName}`;
+            });
+        });
+
+        const uploadedFiles = await Promise.all(uploadList);
+        logs.info('All files uploaded successfully');
+        res.status(200).json({
+            success: true,
+            message: 'Images uploaded successfully',
+            filePaths: uploadedFiles,
+        });
+    } catch (err) {
+        logs.error(err);
+        res.status(500).json({
+            success: false,
+            message: 'Image upload failed',
+        });
+    }
+})
