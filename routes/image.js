@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { uploadImage } = require('../controllers/image');
+const { uploadImage, deleteImage } = require('../controllers/image');
 
 const path = require('path');
-const fs = require('fs');
 const multer = require('multer');
 const storage = multer.memoryStorage();
 
@@ -23,6 +22,8 @@ const upload = multer({
     }
 });
 
-router.post('/', upload.single('photo'), uploadImage);
+router.route('/')
+    .post(upload.single('photo'), uploadImage)
+    .delete(deleteImage);
 
 module.exports = router;
