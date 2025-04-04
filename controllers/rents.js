@@ -285,26 +285,64 @@ exports.addRent = asyncHandler(async (req, res, next) => {
 // @desc    Update rent
 // @route   PUT /api/v1/rents/:id
 // @access  Private
+// Updated updateRent function with provider access
 exports.updateRent = asyncHandler(async (req, res, next) => {
-    let rent = await Rent.findById(req.params.id);
+  let rent = await Rent.findById(req.params.id).populate({
+      path: 'car',
+      select: 'provider_id'
+  });
 
-    if (!rent) {
-        return res.status(404).json({ success: false, message: `No rent with the id of ${req.params.id}` });
-    }
+  if (!rent) {
+      return res.status(404).json({ success: false, message: `No rent with the id of ${req.params.id}` });
+  }
 
-    if (rent.user.toString() !== req.user.id && req.user.role !== 'admin') {
-        return res.status(401).json({ success: false, message: `User ${req.user.id} is not authorized to update this rent` });
-    }
+  // Check authorization for users
+  let isAuthorized = false;
+  
+  if (req.user) {
+      // Regular users can only update their own rentals
+      if (rent.user.toString() === req.user.id) {
+          isAuthorized = true;
+      }
+      // Admins can update any rental
+      else if (req.user.role === 'admin') {
+          isAuthorized = true;
+      }
+  }
+  
+  // Check authorization for providers - they can update rentals for their cars
+  if (req.provider) {
+      // If car is populated, check directly
+      if (typeof rent.car === 'object' && rent.car.provider_id) {
+          if (rent.car.provider_id.toString() === req.provider.id) {
+              isAuthorized = true;
+          }
+      } 
+      // If car is just an ID, we need to fetch the car
+      else if (typeof rent.car === 'string') {
+          const car = await Car.findById(rent.car);
+          if (car && car.provider_id.toString() === req.provider.id) {
+              isAuthorized = true;
+          }
+      }
+  }
 
-    rent = await Rent.findByIdAndUpdate(req.params.id, req.body, {
-        new: true,
-        runValidators: true
-    });
+  if (!isAuthorized) {
+      return res.status(401).json({ 
+          success: false, 
+          message: `Not authorized to update this rental` 
+      });
+  }
 
-    res.status(200).json({
-        success: true,
-        data: rent
-    });
+  rent = await Rent.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true
+  });
+
+  res.status(200).json({
+      success: true,
+      data: rent
+  });
 });
 
 // @desc    Delete rent
