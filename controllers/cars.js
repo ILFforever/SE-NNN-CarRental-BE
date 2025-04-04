@@ -212,7 +212,38 @@ exports.updateCar = async (req, res, next) => {
     }
 
     try {
-        const car = await Car.findByIdAndUpdate(req.params.id, req.body, {
+        const carInfo = await Car.findById(req.params.id);
+        let keepImage = carInfo.images;
+        // User want to change image?
+        if (req.body.removeImage) {
+            const removeImage = JSON.parse(req.body.removeImage);
+            keepImage = keepImage.filter((image) => !removeImage.includes(image));
+        }
+
+        if (req.files) {
+            // Handle image upload
+            const uploadList = req.files.map((file) => {
+                const uploadFileName = generateFileHash(file);
+                const params = {
+                    Bucket: BUCKET_NAME,
+                    Key: `images/${uploadFileName}`,
+                    Body: file.buffer,
+                    ContentType: file.mimetype,
+                }
+                return r2Client.putObject(params).promise()
+                .then(() => {
+                    logs.info(`File uploaded successfully: ${uploadFileName}`);
+                    return uploadFileName;
+                })
+            })
+    
+            const uploadedFiles = await Promise.all(uploadList);
+    
+            // Combine old images with new images
+            keepImage = [...keepImage, ...uploadedFiles];
+        }
+
+        const car = await Car.findByIdAndUpdate(req.params.id, {...req.body, images: keepImage}, {
             new: true,
             runValidators: true
         });
@@ -222,6 +253,7 @@ exports.updateCar = async (req, res, next) => {
         res.status(200).json({ success: true, data: car });
     } catch (err) {
         res.status(400).json({ success: false });
+        logs.error(err);
     }
 };
 

@@ -45,7 +45,7 @@ router
 router
     .route('/:id')
     .get(getCar)
-    .put(protect, authorize('admin', 'provider'), updateCar)
+    .put(protect, authorize('admin', 'provider'), upload.array('images', 5), updateCar)
     .delete(protect, authorize('admin', 'provider'), deleteCar);
 
 module.exports = router;
