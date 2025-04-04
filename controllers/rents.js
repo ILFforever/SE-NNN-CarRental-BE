@@ -61,7 +61,7 @@ exports.getAllRents = asyncHandler(async (req, res, next) => {
 exports.getRent = asyncHandler(async (req, res, next) => {
     const rent = await Rent.findById(req.params.id).populate({
         path: 'car',
-        select: 'license_plate brand type model color manufactureDate available dailyRate tier provider_id'
+        select: 'license_plate brand type model color manufactureDate available dailyRate tier provider_id images'
     });
 
     if (!rent) {
