@@ -69,9 +69,20 @@ exports.getRent = asyncHandler(async (req, res, next) => {
     }
 
     // Check if the user is authorized to view this rent
-    if (rent.user.toString() !== req.user.id && req.user.role !== 'admin') {
-        return res.status(401).json({ success: false, message: `User ${req.user.id} is not authorized to view this rent` });
-    }
+  if (
+    // If it's a user, they can only see their own rentals
+    (req.user && rent.user.toString() !== req.user.id && req.user.role !== 'admin') && 
+    // If it's a provider, they can only see rentals for their cars
+    (!req.provider || !rent.car || 
+    (typeof rent.car === 'object' && rent.car.provider_id.toString() !== req.provider.id) ||
+    (typeof rent.car === 'string' && !(await Car.findById(rent.car)).provider_id.toString() === req.provider.id))
+  ) {
+    return res.status(401).json({ 
+        success: false, 
+        message: `Not authorized to view this rental` 
+    });
+  }
+  
 
     res.status(200).json({
         success: true,
