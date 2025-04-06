@@ -45,7 +45,11 @@ const RentSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now
-    }
+    },
+    isRated: {
+        type: Boolean,
+        default: false
+    },
 });
 
 

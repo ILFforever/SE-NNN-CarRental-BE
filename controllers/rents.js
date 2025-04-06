@@ -3,6 +3,7 @@ const Car = require('../models/Car');
 const User = require('../models/User');
 const Car_Provider = require('../models/Car_Provider');
 const asyncHandler = require('express-async-handler');
+const { isValidObjectId } = require('mongoose');
 
 // @desc    Get user's rents (for regular users)
 // @route   GET /api/v1/rents
@@ -604,3 +605,87 @@ exports.cancelRent = asyncHandler(async (req, res, next) => {
       data: rent
     });
   });
+
+
+  // @desc    Rate a car provider
+// @route   POST /api/v1/rents/:id/rate
+// @access  Private
+exports.rateProvider = asyncHandler(async (req, res, next) => {
+  const { rating } = req.body;
+
+  // Validate rating
+  if (!rating || ![1, 2, 3, 4, 5].includes(rating)) {
+      return res.status(400).json({
+          success: false,
+          message: 'Rating must be a number between 1 and 5'
+      });
+  }
+
+  // Find the rent
+  const rent = await Rent.findById(req.params.id).populate({
+      path: 'car',
+      select: 'provider_id'
+  });
+
+  if (!rent) {
+      return res.status(404).json({
+          success: false,
+          message: `No rent found with the id of ${req.params.id}`
+      });
+  }
+
+  // Ensure the rent is completed
+  if (rent.status !== 'completed') {
+      return res.status(400).json({
+          success: false,
+          message: 'You can only rate a provider for completed rentals'
+      });
+  }
+
+  // Ensure the user is the owner of the rent
+  if (rent.user.toString() !== req.user.id) {
+      return res.status(403).json({
+          success: false,
+          message: 'You are not authorized to rate this rental'
+      });
+  }
+
+  // Ensure the user has not already rated this rent
+  if (rent.isRated) {
+      return res.status(400).json({
+          success: false,
+          message: 'You have already rated this provider for this rental'
+      });
+  }
+
+  // Find the provider
+  const provider = await Car_Provider.findById(rent.car.provider_id);
+  if (!provider) {
+      return res.status(404).json({
+          success: false,
+          message: 'Provider not found'
+      });
+  }
+
+  // Update provider's rating
+  provider.review.totalReviews += 1;
+  provider.review.averageRating =
+      ((provider.review.averageRating * (provider.review.totalReviews - 1)) + rating) / provider.review.totalReviews;
+
+  provider.review.ratingDistribution.set(
+      rating.toString(),
+      (provider.review.ratingDistribution.get(rating.toString()) || 0) + 1
+  );
+
+  await provider.save();
+
+  // Mark the rent as rated
+  rent.isRated = true;
+  await rent.save();
+
+  res.status(200).json({
+      success: true,
+      message: 'Provider rated successfully',
+      data: provider.review
+  });
+});

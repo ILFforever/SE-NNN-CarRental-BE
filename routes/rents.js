@@ -10,7 +10,8 @@ const {
     completeRent,
     confirmRent,
     getProviderRents,
-    cancelRent  // Add the new controller function
+    cancelRent,
+    rateProvider  // Add the new controller function
 } = require('../controllers/rents');
 
 const router = express.Router({ mergeParams: true });
@@ -58,4 +59,7 @@ router
     .route('/:id/cancel')
     .put(cancelRent);
 
+router
+    .route('/:id/rate')
+    .post(rateProvider);
 module.exports = router;
