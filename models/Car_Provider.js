@@ -35,6 +35,21 @@ const CarProviderSchema = new mongoose.Schema({
     resetPasswordExpire: Date,
     verified: Boolean,
     completeRent: Number,
+    review: {
+        totalReviews: {
+            type: Number,
+            default: 0
+        },
+        averageRating: {
+            type: Number,
+            default: 0.00
+        },
+        ratingDistribution: {
+            type: Map,
+            of: Number,
+            default: { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 }
+        }
+    },
     createdAt: {
         type: Date,
         default: Date.now

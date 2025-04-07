@@ -36,7 +36,8 @@ exports.getCarProvider = asyncHandler(async (req, res) => {
         success: true,
         data: {
             ...provider.toObject(),
-            cars
+            cars,
+            review: provider.review
         }
     });
 });
