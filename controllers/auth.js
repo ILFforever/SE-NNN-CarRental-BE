@@ -89,20 +89,6 @@ exports.getCurrentUser=async(req,res,next)=>{
     });
 };
 
-// @desc    Log user out / clear cookie
-// @route   GET /api/v1/auth/logout
-// @access  Private
-/*exports.logout = (req,res,next)=>{
-    res.clearcookie('token',{
-        expires: new Date(Date.now+1000),
-        httpOnly:true
-    });
-
-    res.status(200).json({
-        success: true,
-        message: `${req.user.role} logged out successfully`
-    });
-}*/
 
 // @desc    Log user out / clear cookie
 // @route   GET /api/v1/auth/logout
@@ -320,3 +306,4 @@ exports.removeFavoriteCar = async (req, res, next) => {
         res.status(500).json({ success: false, message: "Server Error" });
     }
 };
+
