@@ -18,6 +18,10 @@ const ServiceSchema = new mongoose.Schema({
         type: Number,
         required: [true, 'Please add service rate']
     },
+    daily: {
+        type: Boolean,
+        required: [true, 'Please select service type']
+    },
     createdAt: {
         type: Date,
         default: Date.now
