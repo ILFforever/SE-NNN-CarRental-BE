@@ -16,7 +16,7 @@ exports.getServices = async (req, res, next) => {
 
 //@desc    Get services by car ID
 //@route   GET /api/v1/services/:carId
-//@access  Public
+//@access  Private
 exports.getServicesByCarId = async (req, res, next) => {
     try {
         const car = await Car.findById(req.params.carId);
