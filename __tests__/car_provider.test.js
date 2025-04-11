@@ -1,7 +1,7 @@
 const request = require("supertest");
 const mongoose = require("mongoose");
 const Car = require("../models/Car");
-const car_provier = require("../models/Car_Provider");
+const car_provdier = require("../models/Car_Provider");
 const app = require("../app");
 
 beforeEach(() => {
@@ -9,7 +9,7 @@ beforeEach(() => {
 });
 
 afterAll(async () => {
-  await car_provier.deleteOne({ email: dataPrep.email });
+  await car_provdier.deleteOne({ email: dataPrep.email });
   await mongoose.connection.close();
 });
 
@@ -22,7 +22,7 @@ const dataPrep = {
 };
 
 describe("Register Car Provider", () => {
-  test("Car Provier can register", async () => {
+  test("Car Provider can register", async () => {
     const res = await request(app)
       .post("/api/v1/Car_Provider/register")
       .send(dataPrep);
@@ -30,7 +30,7 @@ describe("Register Car Provider", () => {
     expect(res.body).toHaveProperty("success", true);
   });
 
-  test("Car Provier can't repeat register", async () => {
+  test("Car Provider can't repeat register", async () => {
     const res1 = await request(app)
       .post("/api/v1/Car_Provider")
       .send({ dataPrep });
