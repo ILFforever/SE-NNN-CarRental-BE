@@ -1,5 +1,4 @@
 const User = require('../models/User');
-const { options } = require('../routes/auth');
 const ValidToken = require('../models/ValidToken');
 
 // @desc    Register user
