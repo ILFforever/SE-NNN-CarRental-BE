@@ -258,76 +258,91 @@ exports.getProviderRents = asyncHandler(async (req, res, next) => {
 // @route   POST /api/v1/rents
 // @access  Private
 exports.addRent = asyncHandler(async (req, res, next) => {
-    // Allow admins to rent for others, otherwise, force req.user.id
-    if (req.user.role === 'admin' && req.body.user) {
-        req.body.user = req.body.user; // Admin specifies user
-    } else {
-        req.body.user = req.user.id; // Regular users can only rent for themselves
-    }
+  // Allow admins to rent for others, otherwise, force req.user.id
+  if (req.user.role === 'admin' && req.body.user) {
+      req.body.user = req.body.user; // Admin specifies user
+  } else {
+      req.body.user = req.user.id; // Regular users can only rent for themselves
+  }
 
-    // Fetch the user renting the car
-    const user = await User.findById(req.body.user);
-    if (!user) {
-        return res.status(404).json({ success: false, message: 'User not found' });
-    }
+  // Fetch the user renting the car
+  const user = await User.findById(req.body.user);
+  if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+  }
 
-    // Check if the user already has 3 active/pending rentals (Admins can bypass this)
-    const existingRents = await Rent.find({ 
-        user: req.body.user, 
-        status: { $in: ['active', 'pending'] }
-    });
+  // Check if the user already has 3 active/pending rentals (Admins can bypass this)
+  const existingRents = await Rent.find({ 
+      user: req.body.user, 
+      status: { $in: ['active', 'pending'] }
+  });
 
-    if (existingRents.length >= 3 && req.user.role !== 'admin') {
-        return res.status(400).json({ success: false, message: `User with ID ${req.body.user} already has 3 active rentals` });
-    }
+  if (existingRents.length >= 3 && req.user.role !== 'admin') {
+      return res.status(400).json({ success: false, message: `User with ID ${req.body.user} already has 3 active rentals` });
+  }
 
-    const { car: carId, startDate, returnDate, price } = req.body;
-    
-    if (!carId || !startDate || !returnDate || !price) {
-        return res.status(400).json({ success: false, message: 'Please provide a car ID, start date, and end date' });
-    }
+  const { car: carId, startDate, returnDate, price, service } = req.body;
+  
+  if (!carId || !startDate || !returnDate || !price) {
+      return res.status(400).json({ success: false, message: 'Please provide a car ID, start date, end date, and price' });
+  }
 
-    const car = await Car.findById(carId);
-    if (!car) {
-        return res.status(404).json({ success: false, message: `No car with the ID ${carId}` });
-    }
+  const car = await Car.findById(carId);
+  if (!car) {
+      return res.status(404).json({ success: false, message: `No car with the ID ${carId}` });
+  }
 
-    // Check tier restriction (Admins bypass this check)
-    if (req.user.role !== 'admin' && user.tier < car.tier) {
-        return res.status(400).json({ success: false, message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})` });
-    }
+  // Check tier restriction (Admins bypass this check)
+  if (req.user.role !== 'admin' && user.tier < car.tier) {
+      return res.status(400).json({ success: false, message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})` });
+  }
 
-    // Check if the car is already rented
-    const carIsRented = await Rent.findOne({
-        car: carId,
-        status: { $in: ['active', 'pending'] },
-        returnDate: { $gt:  req.body.startDate }
-    });
+  // Check if the car is already rented
+  const carIsRented = await Rent.findOne({
+      car: carId,
+      status: { $in: ['active', 'pending'] },
+      returnDate: { $gt: req.body.startDate }
+  });
 
-    if (carIsRented) {
-        return res.status(400).json({ success: false, message: `Car is currently unavailable for rent` });
-    }
+  if (carIsRented) {
+      return res.status(400).json({ success: false, message: `Car is currently unavailable for rent` });
+  }
 
-    const start = new Date(startDate).toISOString();
-    const end = new Date(returnDate).toISOString();
-    const duration = Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)); // Convert milliseconds to days
+  const start = new Date(startDate).toISOString();
+  const end = new Date(returnDate).toISOString();
+  const duration = Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)); // Convert milliseconds to days
 
-    if (duration <= 0) {
-        return res.status(400).json({ success: false, message: 'End date must be after start date' });
-    }
+  if (duration <= 0) {
+      return res.status(400).json({ success: false, message: 'End date must be after start date' });
+  }
 
-    //const totalPrice = duration * car.dailyRate;
-    req.body.price = price;
-    req.body.startDate = start;
-    req.body.returnDate = end;
+  // Calculate service price if services are selected
+  let servicePrice = 0;
+  if (service && service.length > 0) {
+      // Fetch service details to get their rates
+      const services = await Service.find({ _id: { $in: service } });
+      
+      // Calculate total service price based on duration
+      if (services.length > 0) {
+          const totalServiceRatePerDay = services.reduce((total, svc) => total + svc.rate, 0);
+          servicePrice = totalServiceRatePerDay * duration;
+      }
+  }
 
-    const rent = await Rent.create(req.body);
-    await Car.findByIdAndUpdate(rent.car, { available: false });
-    res.status(201).json({
-        success: true,
-        totalPrice: price,
-        data: rent
-    });
+  // Set values for the rent
+  req.body.price = price;
+  req.body.servicePrice = servicePrice;
+  req.body.startDate = start;
+  req.body.returnDate = end;
+
+  const rent = await Rent.create(req.body);
+  await Car.findByIdAndUpdate(rent.car, { available: false });
+  
+  res.status(201).json({
+      success: true,
+      totalPrice: price + servicePrice,
+      data: rent
+  });
 });
 
 // @desc    Update rent
@@ -419,107 +434,112 @@ exports.deleteRent = asyncHandler(async (req, res, next) => {
 // @route   PUT /api/v1/rents/:id/complete
 // @access  Private
 exports.completeRent = asyncHandler(async (req, res, next) => {
-    let rent = await Rent.findById(req.params.id).populate({
-      path: 'car',
-      select: 'tier' // Ensure the tier field is included
+  let rent = await Rent.findById(req.params.id).populate({
+    path: 'car',
+    select: 'tier' // Ensure the tier field is included
+  });
+
+  if (!rent) {
+    return res.status(404).json({
+      success: false,
+      message: `No rent with the id of ${req.params.id}`
     });
-  
-    if (!rent) {
-      return res.status(404).json({
-        success: false,
-        message: `No rent with the id of ${req.params.id}`
-      });
+  }
+
+  // Check authorization:
+  // 1. User can complete their own rental
+  // 2. Admin can complete any rental
+  // 3. Provider can complete rentals for their cars
+  let isAuthorized = false;
+
+  if (req.user) {
+    if (req.user.role === 'admin') {
+      // Admin can complete any rental
+      isAuthorized = true;
+    } else if (rent.user.toString() === req.user.id) {
+      // User can complete their own rental
+      isAuthorized = true;
     }
-  
-    // Check authorization:
-    // 1. User can complete their own rental
-    // 2. Admin can complete any rental
-    // 3. Provider can complete rentals for their cars
-    let isAuthorized = false;
-  
-    if (req.user) {
-      if (req.user.role === 'admin') {
-        // Admin can complete any rental
-        isAuthorized = true;
-      } else if (rent.user.toString() === req.user.id) {
-        // User can complete their own rental
-        isAuthorized = true;
-      }
-    } else if (req.provider) {
-      // For provider, check if the car belongs to them
-      const car = await Car.findById(rent.car);
-      
-      if (car && car.provider_id.toString() === req.provider.id) {
-        isAuthorized = true;
-      }
+  } else if (req.provider) {
+    // For provider, check if the car belongs to them
+    const car = await Car.findById(rent.car);
+    
+    if (car && car.provider_id.toString() === req.provider.id) {
+      isAuthorized = true;
     }
-  
-    if (!isAuthorized) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to complete this rental'
-      });
-    }
-  
-    if (rent.status === 'completed') {
-      return res.status(400).json({
-        success: false,
-        message: `Rent has already been completed`
-      });
-    }
-  
-    const today = new Date();
-    const actualReturnDate = today.toISOString();
-    const returnDate = new Date(rent.returnDate);
-  
-    let user = await User.findById(rent.user);
-    if (user) {
-      user.total_spend += rent.price;
-      await user.save(); // This triggers pre-save middleware
-    }
-   
-    const carInfo = await Car.findByIdAndUpdate(rent.car, { available: true });
-    let daysLate = 0;
-    let lateFee = 0;
-    if (today > returnDate) {
-      daysLate = Math.ceil((today - returnDate) / (1000 * 60 * 60 * 24));
-      lateFee = (rent.car.tier + 1) * 500 * daysLate;
-    } 
-    const totalPrice = rent.price + lateFee;
-  
-    rent = await Rent.findByIdAndUpdate(req.params.id, { 
-      status: 'completed', 
-      actualReturnDate: new Date(),
-      ...req.body
-    }, {
-      new: true,
-      runValidators: true
+  }
+
+  if (!isAuthorized) {
+    return res.status(403).json({
+      success: false,
+      message: 'Not authorized to complete this rental'
     });
+  }
+
+  if (rent.status === 'completed') {
+    return res.status(400).json({
+      success: false,
+      message: `Rent has already been completed`
+    });
+  }
+
+  const today = new Date();
+  const actualReturnDate = today.toISOString();
+  const returnDate = new Date(rent.returnDate);
+
+  let user = await User.findById(rent.user);
+  if (user) {
+    // Include service price in the total spend
+    const totalSpend = rent.price + (rent.servicePrice || 0);
+    user.total_spend += totalSpend;
+    await user.save(); // This triggers pre-save middleware
+  }
+ 
+  const carInfo = await Car.findByIdAndUpdate(rent.car, { available: true });
+  let daysLate = 0;
+  let lateFee = 0;
+  if (today > returnDate) {
+    daysLate = Math.ceil((today - returnDate) / (1000 * 60 * 60 * 24));
+    lateFee = (rent.car.tier + 1) * 500 * daysLate;
+  } 
   
-    // Detect provider car equal with 10
-    const providerProfile = await Car_Provider.findByIdAndUpdate(
+  // Include service price in the total
+  const totalPrice = rent.price + (rent.servicePrice || 0) + lateFee;
+
+  rent = await Rent.findByIdAndUpdate(req.params.id, { 
+    status: 'completed', 
+    actualReturnDate: new Date(),
+    ...req.body
+  }, {
+    new: true,
+    runValidators: true
+  });
+
+  // Detect provider car equal with 10
+  const providerProfile = await Car_Provider.findByIdAndUpdate(
+    carInfo.provider_id,
+    { $inc: { completeRent: 1 } },
+    { new: true }
+  )
+
+  if (providerProfile.completeRent == 10) {
+    await Car_Provider.findByIdAndUpdate(
       carInfo.provider_id,
-      { $inc: { completeRent: 1 } },
+      { $set: { verified: true } },
       { new: true }
     )
+  }
 
-    if (providerProfile.completeRent == 10) {
-      await Car_Provider.findByIdAndUpdate(
-        carInfo.provider_id,
-        { $set: { verified: true } },
-        { new: true }
-      )
-    }
-
-    res.status(200).json({
-      success: true,
-      late_by: daysLate > 0 ? daysLate : 0,
-      late_fee: lateFee > 0 ? lateFee : 0,
-      car_tier: rent.car.tier,
-      total_price: totalPrice,
-      data: rent,
-    });
+  res.status(200).json({
+    success: true,
+    late_by: daysLate > 0 ? daysLate : 0,
+    late_fee: lateFee > 0 ? lateFee : 0,
+    service_price: rent.servicePrice || 0,
+    car_tier: rent.car.tier,
+    total_price: totalPrice,
+    data: rent,
   });
+});
   
 
 // @desc    Admin confirmation of rent (change status from pending to active)

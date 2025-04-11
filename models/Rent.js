@@ -18,9 +18,14 @@ const RentSchema = new mongoose.Schema({
         enum: ['pending', 'active', 'completed', 'cancelled'],
         default: 'pending'
     },
-    price: {
+    price: { //this shows the price Excluding service costs
         type: Number,
         //required: [true, 'Please specify the rental price']
+    },
+    servicePrice: {
+        type: Number,
+        default: 0,
+        // This field will store the calculated total service price
     },
     additionalCharges: {
         type: Object
