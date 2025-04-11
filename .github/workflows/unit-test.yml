@@ -1,11 +1,9 @@
-name: Unit-Testing
+name: 🧪 Unit-Testing
 on:
   push:
     branches:
       - main
   pull_request:
-    branches:
-      - main
 jobs:
   testing:
     name: Run Unit Tests
