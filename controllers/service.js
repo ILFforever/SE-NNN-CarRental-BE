@@ -1,8 +1,10 @@
+const mongoose = require('mongoose');
 const Service = require('../models/Service');
+const Car = require('../models/Car');
 
 //@desc    Get all services
 //@route   GET /api/v1/services
-//@access  Private
+//@access  Public
 exports.getServices = async (req, res, next) => {
     try {
         const services = await Service.find();
@@ -12,6 +14,32 @@ exports.getServices = async (req, res, next) => {
     }
 };
 
+//@desc    Get services by car ID
+//@route   GET /api/v1/services/:carId
+//@access  Private
+exports.getServicesByCarId = async (req, res, next) => {
+    try {
+        const car = await Car.findById(req.params.carId);
+
+        if (!car) {
+            return res.status(404).json({ success: false, error: 'Car not found' });
+        }
+
+        // แปลง string id เป็น ObjectId ก่อน query
+        const serviceObjectIds = car.service.map(id => new mongoose.Types.ObjectId(id));
+
+        const services = await Service.find({ _id: { $in: serviceObjectIds } });
+
+        res.status(200).json({
+            success: true,
+            count: services.length,
+            data: services
+        });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ success: false, error: 'Server error' });
+    }
+};
 //@desc    Create a new service
 //@route   POST /api/v1/services
 //@access  Private

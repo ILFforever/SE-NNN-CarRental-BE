@@ -2,6 +2,7 @@ const express = require('express');
 
 const { 
     getServices,
+    getServicesByCarId,
     createService,
     updateService,
 } = require('../controllers/service');
@@ -18,5 +19,9 @@ router
 router
     .route('/:id')
     .put(protect, authorize('admin'), updateService)
+
+router
+    .route('/:carId')
+    .get(protect, getServicesByCarId);
 
 module.exports = router;
