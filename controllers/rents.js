@@ -1,6 +1,7 @@
 const Rent = require('../models/Rent');
 const Car = require('../models/Car');
 const User = require('../models/User');
+const Service = require('../models/Service');
 const Car_Provider = require('../models/Car_Provider');
 const asyncHandler = require('express-async-handler');
 
