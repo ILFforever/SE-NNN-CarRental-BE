@@ -18,14 +18,23 @@ const RentSchema = new mongoose.Schema({
         enum: ['pending', 'active', 'completed', 'cancelled'],
         default: 'pending'
     },
-    price: { //this shows the price Excluding service costs
+    price: {
         type: Number,
-        //required: [true, 'Please specify the rental price']
+        required: [true, 'Please specify the rental price']
     },
     servicePrice: {
         type: Number,
         default: 0,
-        // This field will store the calculated total service price
+        // This field stores the calculated total service price
+    },
+    discountAmount: {
+        type: Number,
+        default: 0,
+        // This field stores the discount amount based on user tier
+    },
+    finalPrice: {
+        type: Number,
+        // This field stores the final price after all calculations
     },
     additionalCharges: {
         type: Object
@@ -57,5 +66,11 @@ const RentSchema = new mongoose.Schema({
     },
 });
 
+// Pre-save middleware to calculate finalPrice
+RentSchema.pre('save', function(next) {
+    // Calculate finalPrice based on price, servicePrice, and discountAmount
+    this.finalPrice = (this.price || 0) + (this.servicePrice || 0) - (this.discountAmount || 0);
+    next();
+});
 
 module.exports = mongoose.model('Rent', RentSchema);

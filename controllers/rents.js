@@ -282,7 +282,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       return res.status(400).json({ success: false, message: `User with ID ${req.body.user} already has 3 active rentals` });
   }
 
-  const { car: carId, startDate, returnDate, price, service } = req.body;
+  const { car: carId, startDate, returnDate, price, service, discountAmount } = req.body;
   
   if (!carId || !startDate || !returnDate || !price) {
       return res.status(400).json({ success: false, message: 'Please provide a car ID, start date, end date, and price' });
@@ -323,16 +323,30 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       // Fetch service details to get their rates
       const services = await Service.find({ _id: { $in: service } });
       
-      // Calculate total service price based on duration
+      // Calculate total service price based on duration and service type (daily vs one-time)
       if (services.length > 0) {
-          const totalServiceRatePerDay = services.reduce((total, svc) => total + svc.rate, 0);
-          servicePrice = totalServiceRatePerDay * duration;
+          servicePrice = services.reduce((total, svc) => {
+              // For daily services, multiply by duration; for one-time services, add just once
+              return total + (svc.daily ? svc.rate * duration : svc.rate);
+          }, 0);
       }
   }
+
+  // Calculate discount amount based on user tier, if not provided
+  const tierDiscountRate = [0, 5, 10, 15, 20][user.tier] || 0; // Tier discount percentage lookup
+  const calculatedDiscountAmount = ((price + servicePrice) * tierDiscountRate / 100) || 0;
+  
+  // Use provided discountAmount or calculate it
+  const finalDiscountAmount = discountAmount !== undefined ? discountAmount : calculatedDiscountAmount;
+
+  // Calculate final price
+  const finalPrice = price + servicePrice - finalDiscountAmount;
 
   // Set values for the rent
   req.body.price = price;
   req.body.servicePrice = servicePrice;
+  req.body.discountAmount = finalDiscountAmount;
+  req.body.finalPrice = finalPrice;
   req.body.startDate = start;
   req.body.returnDate = end;
 
@@ -341,7 +355,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
   
   res.status(201).json({
       success: true,
-      totalPrice: price + servicePrice,
+      totalPrice: finalPrice,
       data: rent
   });
 });
@@ -490,8 +504,8 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
 
   let user = await User.findById(rent.user);
   if (user) {
-    // Include service price in the total spend
-    const totalSpend = rent.price + (rent.servicePrice || 0);
+    // Include the finalPrice in the total spend calculation
+    const totalSpend = rent.finalPrice || (rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0));
     user.total_spend += totalSpend;
     await user.save(); // This triggers pre-save middleware
   }
@@ -504,14 +518,27 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
     lateFee = (rent.car.tier + 1) * 500 * daysLate;
   } 
   
-  // Include service price in the total
-  const totalPrice = rent.price + (rent.servicePrice || 0) + lateFee;
+  // Calculate total price including late fees
+  const baseRentalCost = rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0);
+  const finalPriceWithLateFees = baseRentalCost + lateFee;
 
-  rent = await Rent.findByIdAndUpdate(req.params.id, { 
+  // Update the rent with completion details
+  let updateData = { 
     status: 'completed', 
     actualReturnDate: new Date(),
     ...req.body
-  }, {
+  };
+
+  // Add late fees if applicable
+  if (lateFee > 0) {
+    updateData.additionalCharges = {
+      ...(rent.additionalCharges || {}),
+      lateFee: lateFee
+    };
+    updateData.finalPrice = finalPriceWithLateFees;
+  }
+
+  rent = await Rent.findByIdAndUpdate(req.params.id, updateData, {
     new: true,
     runValidators: true
   });
@@ -536,8 +563,9 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
     late_by: daysLate > 0 ? daysLate : 0,
     late_fee: lateFee > 0 ? lateFee : 0,
     service_price: rent.servicePrice || 0,
+    discount_amount: rent.discountAmount || 0,
     car_tier: rent.car.tier,
-    total_price: totalPrice,
+    final_price: rent.finalPrice || finalPriceWithLateFees,
     data: rent,
   });
 });
