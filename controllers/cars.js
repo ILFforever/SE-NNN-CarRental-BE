@@ -191,72 +191,85 @@ exports.createCar = async(req, res, next) => {
 //@access  Private
 exports.updateCar = async (req, res, next) => {
     let car = await Car.findById(req.params.id);
-    
+  
     if (!car) {
-        return res.status(404).json({
-            success: false,
-            error: `Car not found`
-        });
+      return res.status(404).json({
+        success: false,
+        error: `Car not found`
+      });
     }
-
-    //  check if new provider exists
+  
+    // Check if new provider exists
     if (req.body.provider_id) {
-        const provider = await car_provider.findById(req.body.provider_id);
-        
-        if (!provider) {
-            return res.status(404).json({
-                success: false,
-                error: `Car provider not found`
-            });
-        }
-    }
-
-    try {
-        const carInfo = await Car.findById(req.params.id);
-        let keepImage = carInfo.images;
-        // User want to change image?
-        if (req.body.removeImage) {
-            const removeImage = JSON.parse(req.body.removeImage);
-            keepImage = keepImage.filter((image) => !removeImage.includes(image));
-        }
-
-        if (req.files) {
-            // Handle image upload
-            const uploadList = req.files.map((file) => {
-                const uploadFileName = generateFileHash(file);
-                const params = {
-                    Bucket: BUCKET_NAME,
-                    Key: `images/${uploadFileName}`,
-                    Body: file.buffer,
-                    ContentType: file.mimetype,
-                }
-                return r2Client.putObject(params).promise()
-                .then(() => {
-                    logs.info(`File uploaded successfully: ${uploadFileName}`);
-                    return uploadFileName;
-                })
-            })
-    
-            const uploadedFiles = await Promise.all(uploadList);
-    
-            // Combine old images with new images
-            keepImage = [...keepImage, ...uploadedFiles];
-        }
-
-        const car = await Car.findByIdAndUpdate(req.params.id, {...req.body, images: keepImage}, {
-            new: true,
-            runValidators: true
+      const provider = await car_provider.findById(req.body.provider_id);
+  
+      if (!provider) {
+        return res.status(404).json({
+          success: false,
+          error: `Car provider not found`
         });
-        if (!car) {
-            return res.status(400).json({ success: false });
-        }
-        res.status(200).json({ success: true, data: car });
-    } catch (err) {
-        res.status(400).json({ success: false });
-        logs.error(err);
+      }
     }
-};
-
+  
+    try {
+      const carInfo = await Car.findById(req.params.id);
+      let keepImage = carInfo.images;
+  
+      // User wants to change image?
+      if (req.body.removeImage) {
+        const removeImage = JSON.parse(req.body.removeImage);
+        keepImage = keepImage.filter((image) => !removeImage.includes(image));
+      }
+  
+      if (req.files) {
+        // Handle image upload
+        const uploadList = req.files.map((file) => {
+          const uploadFileName = generateFileHash(file);
+          const params = {
+            Bucket: BUCKET_NAME,
+            Key: `images/${uploadFileName}`,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+          };
+          return r2Client.putObject(params).promise()
+            .then(() => {
+              logs.info(`File uploaded successfully: ${uploadFileName}`);
+              return uploadFileName;
+            });
+        });
+  
+        const uploadedFiles = await Promise.all(uploadList);
+  
+        // Combine old images with new images
+        keepImage = [...keepImage, ...uploadedFiles];
+      }
+  
+      // Reorder images based on the provided order
+      if (req.body.imageOrder) {
+        const imageOrder = JSON.parse(req.body.imageOrder);
+        keepImage = imageOrder.map((fileName) => {
+          if (keepImage.includes(fileName)) {
+            return fileName;
+          }
+        }).filter(Boolean);
+      }
+  
+      const car = await Car.findByIdAndUpdate(req.params.id, { ...req.body, images: keepImage }, {
+        new: true,
+        runValidators: true
+      });
+  
+      if (!car) {
+        return res.status(400).json({ success: false });
+      }
+  
+      res.status(200).json({ success: true, data: car });
+    } catch (err) {
+      res.status(400).json({ success: false });
+      logs.error(err);
+    }
+  };
+  
 
 //@desc    Delete car
 //@route   DELETE /api/v1/cars/:id
