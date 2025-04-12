@@ -330,79 +330,93 @@ exports.addRent = asyncHandler(async (req, res, next) => {
   }
 
   // Check if the car is already rented
-  try {
-    const availabilityCheck = await checkCarAvailability(
-      carId,
-      req.body.startDate,
-      req.body.returnDate
-    );
-    if (!availabilityCheck.isAvailable) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `Car is currently unavailable for rent`,
-        });
-    }
+  const carIsRented = await Rent.findOne({
+    car: carId,
+    status: { $in: ["active", "pending"] },
+    $or: [
+      // Case 1: Existing reservation start date falls within requested period
+      {
+        startDate: { $gte: req.body.startDate, $lt: req.body.returnDate },
+      },
+      // Case 2: Existing reservation end date falls within requested period
+      {
+        returnDate: { $gt: req.body.startDate, $lte: req.body.returnDate },
+      },
+      // Case 3: Existing reservation completely contains requested period
+      {
+        startDate: { $lte: req.body.startDate },
+        returnDate: { $gte: req.body.returnDate },
+      },
+      // Case 4: Requested period completely contains existing reservation
+      {
+        startDate: { $gte: req.body.startDate },
+        returnDate: { $lte: req.body.returnDate },
+      },
+    ],
+  });
 
-    const start = new Date(startDate).toISOString();
-    const end = new Date(returnDate).toISOString();
-    const duration =
-      Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)) + 1; // to match FE
-    if (duration <= 0) {
-      return res
-        .status(400)
-        .json({ success: false, message: "End date must be after start date" });
-    }
-
-    // Calculate service price if services are selected
-    let servicePrice = 0;
-    if (service && service.length > 0) {
-      // Fetch service details to get their rates
-      const services = await Service.find({ _id: { $in: service } });
-
-      // Calculate total service price based on duration and service type (daily vs one-time)
-      if (services.length > 0) {
-        servicePrice = services.reduce((total, svc) => {
-          // For daily services, multiply by duration; for one-time services, add just once
-          return total + (svc.daily ? svc.rate * duration : svc.rate);
-        }, 0);
-      }
-    }
-
-    // Calculate discount amount based on user tier, if not provided
-    const tierDiscountRate = [0, 5, 10, 15, 20][user.tier] || 0; // Tier discount percentage lookup
-    const calculatedDiscountAmount =
-      ((price + servicePrice) * tierDiscountRate) / 100 || 0;
-
-    // Use provided discountAmount or calculate it
-    const finalDiscountAmount =
-      discountAmount !== undefined ? discountAmount : calculatedDiscountAmount;
-
-    // Calculate final price
-    const finalPrice = price + servicePrice - finalDiscountAmount;
-
-    // Set values for the rent
-    req.body.price = price;
-    req.body.servicePrice = servicePrice;
-    req.body.discountAmount = finalDiscountAmount;
-    req.body.finalPrice = finalPrice;
-    req.body.startDate = start;
-    req.body.returnDate = end;
-
-    const rent = await Rent.create(req.body);
-    //await Car.findByIdAndUpdate(rent.car, { available: false });
-
-    res.status(201).json({
-      success: true,
-      totalPrice: finalPrice,
-      data: rent,
-    });
-  } catch (err) {
+  if (carIsRented) {
     return res
-      .status(500)
-      .json({ success: false, message: `Error checking car availability` });
+      .status(400)
+      .json({
+        success: false,
+        message: `Car is currently unavailable for rent`,
+      });
   }
+
+  const start = new Date(startDate).toISOString();
+  const end = new Date(returnDate).toISOString();
+  const duration =
+    Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)) + 1; // to match FE
+  if (duration <= 0) {
+    return res
+      .status(400)
+      .json({ success: false, message: "End date must be after start date" });
+  }
+
+  // Calculate service price if services are selected
+  let servicePrice = 0;
+  if (service && service.length > 0) {
+    // Fetch service details to get their rates
+    const services = await Service.find({ _id: { $in: service } });
+
+    // Calculate total service price based on duration and service type (daily vs one-time)
+    if (services.length > 0) {
+      servicePrice = services.reduce((total, svc) => {
+        // For daily services, multiply by duration; for one-time services, add just once
+        return total + (svc.daily ? svc.rate * duration : svc.rate);
+      }, 0);
+    }
+  }
+
+  // Calculate discount amount based on user tier, if not provided
+  const tierDiscountRate = [0, 5, 10, 15, 20][user.tier] || 0; // Tier discount percentage lookup
+  const calculatedDiscountAmount =
+    ((price + servicePrice) * tierDiscountRate) / 100 || 0;
+
+  // Use provided discountAmount or calculate it
+  const finalDiscountAmount =
+    discountAmount !== undefined ? discountAmount : calculatedDiscountAmount;
+
+  // Calculate final price
+  const finalPrice = price + servicePrice - finalDiscountAmount;
+
+  // Set values for the rent
+  req.body.price = price;
+  req.body.servicePrice = servicePrice;
+  req.body.discountAmount = finalDiscountAmount;
+  req.body.finalPrice = finalPrice;
+  req.body.startDate = start;
+  req.body.returnDate = end;
+
+  const rent = await Rent.create(req.body);
+  //await Car.findByIdAndUpdate(rent.car, { available: false });
+
+  res.status(201).json({
+    success: true,
+    totalPrice: finalPrice,
+    data: rent,
+  });
 });
 
 // @desc    Update rent
