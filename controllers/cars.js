@@ -454,3 +454,54 @@ exports.checkCarAvailability = async (req, res, next) => {
     });
   }
 };
+
+// @desc    Toggle car availability
+// @route   PATCH /api/v1/cars/:id/availability
+// @access  Private (Admin and Car Provider only)
+exports.toggleCarAvailability = async (req, res, next) => {
+  try {
+    const car = await Car.findById(req.params.id);
+
+    if (!car) {
+      return res.status(404).json({
+        success: false,
+        error: 'Car not found'
+      });
+    }
+
+    // Check authorization - only admin or the car's provider can update availability
+    const isAdmin = req.user && req.user.role === 'admin';
+    const isOwner = req.provider && car.provider_id.toString() === req.provider.id;
+
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({
+        success: false,
+        error: 'Not authorized to update this car\'s availability'
+      });
+    }
+
+    // If no specific value is provided in the request, toggle the current value
+    const newAvailability = req.body.available !== undefined 
+      ? req.body.available 
+      : !car.available;
+
+    // Update the car's availability
+    const updatedCar = await Car.findByIdAndUpdate(
+      req.params.id,
+      { available: newAvailability },
+      { new: true, runValidators: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      data: updatedCar,
+      message: `Car availability set to ${newAvailability}`
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+};

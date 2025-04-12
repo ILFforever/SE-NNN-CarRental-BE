@@ -350,7 +350,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
   req.body.returnDate = end;
 
   const rent = await Rent.create(req.body);
-  await Car.findByIdAndUpdate(rent.car, { available: false });
+  //await Car.findByIdAndUpdate(rent.car, { available: false });
   
   res.status(201).json({
       success: true,
@@ -509,7 +509,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
     await user.save(); // This triggers pre-save middleware
   }
  
-  const carInfo = await Car.findByIdAndUpdate(rent.car, { available: true });
+  const carInfo = await Car.findById(rent.car);
   let daysLate = 0;
   let lateFee = 0;
   if (today > returnDate) {
@@ -622,7 +622,7 @@ exports.confirmRent = asyncHandler(async (req, res, next) => {
     }
   
     // Update the car's availability status to false
-    await Car.findByIdAndUpdate(rent.car, { available: false });
+    //await Car.findByIdAndUpdate(rent.car, { available: false });
   
     // Set status to active
     rent = await Rent.findByIdAndUpdate(req.params.id, { 
@@ -682,9 +682,9 @@ exports.cancelRent = asyncHandler(async (req, res, next) => {
     }
   
     // If the rental was active, make the car available again
-    if (rent.status === 'active') {
-      await Car.findByIdAndUpdate(rent.car, { available: true });
-    }
+    // if (rent.status === 'active') {
+    //   await Car.findByIdAndUpdate(rent.car, { available: true });
+    // }
   
     // Set status to cancelled
     rent = await Rent.findByIdAndUpdate(req.params.id, { 
