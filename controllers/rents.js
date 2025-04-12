@@ -311,8 +311,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
 
   const start = new Date(startDate).toISOString();
   const end = new Date(returnDate).toISOString();
-  const duration = Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)); // Convert milliseconds to days
-
+  const duration = Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)) + 1; // to match FE
   if (duration <= 0) {
       return res.status(400).json({ success: false, message: 'End date must be after start date' });
   }
