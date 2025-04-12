@@ -363,6 +363,7 @@ exports.updateCarImageOrder = async (req, res, next) => {
     });
   }
 };
+
 // @desc Check car availability for specific dates
 // @route GET /api/v1/cars/check-availability/:carId
 // @access Private
@@ -415,6 +416,11 @@ exports.checkCarAvailability = async (req, res, next) => {
           startDate: { $gte: start },
           returnDate: { $lte: end },
         },
+        // กรณี 4: การจองใหม่ครอบคลุมการจองที่มีอยู่ทั้งหมด
+        {
+          startDate: { $lte: start },
+          returnDate: { $gte: end }
+        }
       ],
     });
 
