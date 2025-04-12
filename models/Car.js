@@ -52,8 +52,13 @@ const CarSchema = new mongoose.Schema({
         default: []
     },
     images: {
-      type: [String],
-      default: []  
+        type: [String],
+        default: []  
+    },
+    // New field to maintain image order
+    imageOrder: {
+        type: [String],
+        default: [] // Will store image filenames in order
     },
     createdAt: {
         type: Date,
@@ -65,17 +70,19 @@ const CarSchema = new mongoose.Schema({
     toObject : {virtuals:true}
 });
 
-// Create Car slug from the brand and model
+// Pre-save hook to ensure imageOrder matches images array if not set
 CarSchema.pre('save', function(next) {
-    this.slug = `${this.brand.toLowerCase()}-${this.model.toLowerCase()}-${this.license_plate.toLowerCase().replace(/\s+/g, '-')}`;
+    // If imageOrder is empty but images exist, initialize it with images
+    if (this.images.length > 0 && this.imageOrder.length === 0) {
+        this.imageOrder = this.images.slice();
+    }
+    
+    // Remove any stale entries from imageOrder that don't exist in images
+    this.imageOrder = this.imageOrder.filter(filename => 
+        this.images.includes(filename)
+    );
+    
     next();
-});
-
-CarSchema.virtual('rents',{
-    ref: 'Rent',
-    localField: '_id',
-    foreignField: 'car',
-    justOne : false 
 });
 
 module.exports = mongoose.model('Car', CarSchema);

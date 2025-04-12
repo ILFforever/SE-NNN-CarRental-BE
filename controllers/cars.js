@@ -168,7 +168,8 @@ exports.createCar = async(req, res, next) => {
         const carData = {
             ...req.body,
             provider_id: providerId,
-            images: uploadedFiles
+            images: uploadedFiles || [],
+            imageOrder: uploadedFiles || [] // Initialize imageOrder with uploaded files
         };
         
         const car = await Car.create(carData);
@@ -191,86 +192,91 @@ exports.createCar = async(req, res, next) => {
 //@access  Private
 exports.updateCar = async (req, res, next) => {
     let car = await Car.findById(req.params.id);
-  
+    
     if (!car) {
-      return res.status(404).json({
-        success: false,
-        error: `Car not found`
-      });
+        return res.status(404).json({
+            success: false,
+            error: `Car not found`
+        });
     }
-  
+
     // Check if new provider exists
     if (req.body.provider_id) {
-      const provider = await car_provider.findById(req.body.provider_id);
-  
-      if (!provider) {
-        return res.status(404).json({
-          success: false,
-          error: `Car provider not found`
-        });
-      }
-    }
-  
-    try {
-      const carInfo = await Car.findById(req.params.id);
-      let keepImage = carInfo.images;
-  
-      // User wants to change image?
-      if (req.body.removeImage) {
-        const removeImage = JSON.parse(req.body.removeImage);
-        keepImage = keepImage.filter((image) => !removeImage.includes(image));
-      }
-  
-      if (req.files) {
-        // Handle image upload
-        const uploadList = req.files.map((file) => {
-          const uploadFileName = generateFileHash(file);
-          const params = {
-            Bucket: BUCKET_NAME,
-            Key: `images/${uploadFileName}`,
-            Body: file.buffer,
-            ContentType: file.mimetype,
-          };
-          return r2Client.putObject(params).promise()
-            .then(() => {
-              logs.info(`File uploaded successfully: ${uploadFileName}`);
-              return uploadFileName;
+        const provider = await car_provider.findById(req.body.provider_id);
+        
+        if (!provider) {
+            return res.status(404).json({
+                success: false,
+                error: `Car provider not found`
             });
-        });
-  
-        const uploadedFiles = await Promise.all(uploadList);
-  
-        // Combine old images with new images
-        keepImage = [...keepImage, ...uploadedFiles];
-      }
-  
-      // Reorder images based on the provided order
-      if (req.body.imageOrder) {
-        const imageOrder = JSON.parse(req.body.imageOrder);
-        keepImage = imageOrder.map((fileName) => {
-          if (keepImage.includes(fileName)) {
-            return fileName;
-          }
-        }).filter(Boolean);
-      }
-  
-      const car = await Car.findByIdAndUpdate(req.params.id, { ...req.body, images: keepImage }, {
-        new: true,
-        runValidators: true
-      });
-  
-      if (!car) {
-        return res.status(400).json({ success: false });
-      }
-  
-      res.status(200).json({ success: true, data: car });
-    } catch (err) {
-      res.status(400).json({ success: false });
-      logs.error(err);
+        }
     }
-  };
-  
 
+    try {
+        const carInfo = await Car.findById(req.params.id);
+        let keepImage = carInfo.images;
+        let keepImageOrder = carInfo.imageOrder || [];
+
+        // User want to change image?
+        if (req.body.removeImage) {
+            const removeImage = JSON.parse(req.body.removeImage);
+            
+            // Remove from images
+            keepImage = keepImage.filter((image) => !removeImage.includes(image));
+            
+            // Remove from imageOrder
+            keepImageOrder = keepImageOrder.filter((image) => !removeImage.includes(image));
+        }
+
+        // New image uploads
+        if (req.files && req.files.length > 0) {
+            // Upload new images
+            const uploadList = req.files.map((file) => {
+                const uploadFileName = generateFileHash(file);
+                const params = {
+                    Bucket: BUCKET_NAME,
+                    Key: `images/${uploadFileName}`,
+                    Body: file.buffer,
+                    ContentType: file.mimetype,
+                }
+                return r2Client.putObject(params).promise()
+                .then(() => {
+                    logs.info(`File uploaded successfully: ${uploadFileName}`);
+                    return uploadFileName;
+                })
+            });
+
+            const uploadedFiles = await Promise.all(uploadList);
+
+            // Combine old images with new images
+            keepImage = [...keepImage, ...uploadedFiles];
+            
+            // Combine old imageOrder with new images at the end
+            keepImageOrder = [...keepImageOrder, ...uploadedFiles];
+        }
+
+        const updateData = {
+            ...req.body,
+            images: keepImage,
+            imageOrder: keepImageOrder
+        };
+
+        const car = await Car.findByIdAndUpdate(req.params.id, updateData, {
+            new: true,
+            runValidators: true
+        });
+
+        if (!car) {
+            return res.status(400).json({ success: false });
+        }
+
+        res.status(200).json({ success: true, data: car });
+    } catch (err) {
+        res.status(400).json({ success: false, error: err.message });
+        logs.error(err);
+    }
+};
+  
 //@desc    Delete car
 //@route   DELETE /api/v1/cars/:id
 //@access  Private
@@ -290,3 +296,54 @@ exports.deleteCar = async (req, res, next) => {
     }
 };
 
+exports.updateCarImageOrder = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { imageOrder } = req.body;
+
+        // Validate input
+        if (!Array.isArray(imageOrder)) {
+            return res.status(400).json({
+                success: false,
+                error: 'Invalid image order format'
+            });
+        }
+
+        const car = await Car.findById(id);
+
+        if (!car) {
+            return res.status(404).json({
+                success: false,
+                error: 'Car not found'
+            });
+        }
+
+        // Validate that all images in order exist in the car's images
+        const invalidImages = imageOrder.filter(
+            img => !car.images.includes(img)
+        );
+
+        if (invalidImages.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Some images in the order do not exist in the car\'s images',
+                invalidImages
+            });
+        }
+
+        // Update the image order
+        car.imageOrder = imageOrder;
+        await car.save();
+
+        res.status(200).json({
+            success: true,
+            data: car
+        });
+    } catch (err) {
+        console.error('Error updating image order:', err);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to update image order'
+        });
+    }
+};

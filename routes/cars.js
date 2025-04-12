@@ -4,7 +4,8 @@ const {
     getCar,
     createCar,
     updateCar,
-    deleteCar
+    deleteCar,
+    updateCarImageOrder // New method
 } = require('../controllers/cars');
 
 // Include rent router for nested routes
@@ -42,10 +43,16 @@ router
     .route('/')
     .get(getCars)
     .post(protect, authorize('admin', 'provider'), upload.array('images', 5), createCar);
+
 router
     .route('/:id')
     .get(getCar)
     .put(protect, authorize('admin', 'provider'), upload.array('images', 5), updateCar)
     .delete(protect, authorize('admin', 'provider'), deleteCar);
+
+// New route for updating image order
+router
+    .route('/:id/image-order')
+    .put(protect, authorize('admin', 'provider'), updateCarImageOrder);
 
 module.exports = router;
