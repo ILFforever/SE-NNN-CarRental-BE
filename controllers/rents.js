@@ -329,41 +329,6 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       });
   }
 
-  // Check if the car is already rented
-  const carIsRented = await Rent.findOne({
-    car: carId,
-    status: { $in: ["active", "pending"] },
-    $or: [
-      // Case 1: Existing reservation start date falls within requested period
-      {
-        startDate: { $gte: req.body.startDate, $lt: req.body.returnDate },
-      },
-      // Case 2: Existing reservation end date falls within requested period
-      {
-        returnDate: { $gt: req.body.startDate, $lte: req.body.returnDate },
-      },
-      // Case 3: Existing reservation completely contains requested period
-      {
-        startDate: { $lte: req.body.startDate },
-        returnDate: { $gte: req.body.returnDate },
-      },
-      // Case 4: Requested period completely contains existing reservation
-      {
-        startDate: { $gte: req.body.startDate },
-        returnDate: { $lte: req.body.returnDate },
-      },
-    ],
-  });
-
-  if (carIsRented) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: `Car is currently unavailable for rent`,
-      });
-  }
-
   const start = new Date(startDate).toISOString();
   const end = new Date(returnDate).toISOString();
   const duration =
