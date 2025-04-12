@@ -357,3 +357,81 @@ exports.updateCarImageOrder = async (req, res, next) => {
         });
     }
 };
+
+// @desc Check car availability for specific dates
+// @route GET /api/v1/cars/check-availability/:carId
+// @access Private
+exports.checkCarAvailability = asyncHandler(async (req, res, next) => {
+    const { carId } = req.params;
+    const { startDate, returnDate } = req.query;
+
+    if (!carId || !startDate || !returnDate) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide car ID, start date, and return date'
+      });
+    }
+    
+    const car = await Car.findById(carId);
+    if (!car) {
+      return res.status(404).json({
+        success: false,
+        message: `No car found with ID ${carId}`
+      });
+    }
+    
+    const start = new Date(startDate);
+    const end = new Date(returnDate);
+    
+    if (start >= end) {
+      return res.status(400).json({
+        success: false,
+        message: 'Return date must be after start date'
+      });
+    }
+    
+    const conflictingRentals = await Rent.find({
+      car: carId,
+      status: { $in: ['active', 'pending'] },
+      $or: [
+        // กรณี 1: วันเริ่มต้นจองใหม่อยู่ในช่วงการจองที่มีอยู่
+        {
+          startDate: { $lte: start },
+          returnDate: { $gt: start }
+        },
+        // กรณี 2: วันสิ้นสุดจองใหม่อยู่ในช่วงการจองที่มีอยู่
+        {
+          startDate: { $lt: end },
+          returnDate: { $gte: end }
+        },
+        // กรณี 3: การจองใหม่ครอบคลุมทั้งช่วงการจองที่มีอยู่
+        {
+          startDate: { $gte: start },
+          returnDate: { $lte: end }
+        }
+      ]
+    });
+    
+    const isAvailable = conflictingRentals.length === 0 && car.available;
+    
+    const conflicts = conflictingRentals.map(rental => ({
+      id: rental._id,
+      startDate: rental.startDate,
+      returnDate: rental.returnDate,
+      status: rental.status
+    }));
+    
+    res.status(200).json({
+      success: true,
+      data: {
+        available: isAvailable,
+        conflicts,
+        car: {
+          id: car._id,
+          brand: car.brand,
+          model: car.model,
+          available: car.available
+        }
+      }
+    });
+  });
