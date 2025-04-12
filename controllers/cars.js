@@ -17,14 +17,17 @@ exports.getCars = async (req, res, next) => {
         let queryStr = JSON.stringify(reqQuery);
         queryStr = queryStr.replace(/\b(gt|gte|lt|lte|in)\b/g, match => `${match}`);
         
-        query = Car.find(JSON.parse(queryStr));
+        // Use populate with strict option set to false
+        query = Car.find(JSON.parse(queryStr)).populate({
+            path: 'rents',
+            strictPopulate: false
+        });
         
         // Filter by provider ID if specified
         if (req.query.providerId) {
             query = query.where({ provider_id : req.query.providerId });
         }
         
-        query = query.populate('rents');
         if (req.query.select) {
             const fields = req.query.select.split(',').join(' ');
             query = query.select(fields);
@@ -45,6 +48,7 @@ exports.getCars = async (req, res, next) => {
         const total = await Car.countDocuments(query.getQuery());
         const totalCount = await Car.countDocuments(query.getQuery());
         const totalMatchingCount = await Car.countDocuments(query.getQuery());
+        
         query = query.skip(startIndex).limit(limit);
         
         // Execute the query
@@ -72,7 +76,7 @@ exports.getCars = async (req, res, next) => {
             totalMatchingCount: totalMatchingCount,
             pagination,
             data: cars 
-          });
+        });
     } catch (err) {
         console.error(err);
         res.status(400).json({ 
@@ -82,16 +86,21 @@ exports.getCars = async (req, res, next) => {
     }
 };
 
+
 //@desc    Get single car
 //@route   GET /api/v1/cars/:id
 //@access  Public
 exports.getCar = async (req, res, next) => {
     try {
-        const car = await Car.findById(req.params.id).populate({
-            path: 'provider_id',
-            select: 'name address telephone_number'
-        })
-        .populate('rents');
+        const car = await Car.findById(req.params.id)
+            .populate({
+                path: 'provider_id',
+                select: 'name address telephone_number'
+            })
+            .populate({
+                path: 'rents',
+                strictPopulate: false
+            });
 
         if (!car) {
             return res.status(400).json({ success: false });
