@@ -4,6 +4,7 @@ const cookieParser = require('cookie-parser');
 const connectDB = require('./config/db');
 const cors = require('cors');
 const s3Client = require('./config/r2');
+const path = require('path');
 
 // Load env vars
 dotenv.config();
@@ -21,13 +22,18 @@ app.use(express.json());
 // Cookie parser
 app.use(cookieParser());
 
+// Set view engine
+app.set('view engine', 'ejs');
+// Set the views directory
+app.set('views', path.join(__dirname, 'pages'));
+
 // Import route files
 const cars = require('./routes/cars');
 const rents = require('./routes/rents');
 const auth = require('./routes/auth');
 const provide = require('./routes/Car_Provider');
 const services = require('./routes/services');
-const images = require('./routes/image');
+const qrcode = require('./routes/qrCode');
 
 // Mount routers
 app.use('/api/v1/cars', cars);
@@ -35,7 +41,7 @@ app.use('/api/v1/rents', rents);
 app.use('/api/v1/Car_Provider', provide);
 app.use('/api/v1/auth', auth);
 app.use('/api/v1/services', services);
-app.use('/api/v1/image', images)
+app.use('/api/v1/qrcode', qrcode);
 
 app.get('/', (req, res) => {
   res.send("Car Rental API is working!");
