@@ -20,8 +20,11 @@ exports.getCars = async (req, res, next) => {
       (match) => `${match}`
     );
 
+    // Parse the query string into a MongoDB query object
+    const parsedQuery = JSON.parse(queryStr);
+    
     // Use populate with strict option set to false
-    query = Car.find(JSON.parse(queryStr)).populate({
+    query = Car.find(parsedQuery).populate({
       path: "rents",
       strictPopulate: false,
     });
@@ -43,15 +46,27 @@ exports.getCars = async (req, res, next) => {
       query = query.sort("-manufactureDate");
     }
 
+    // Create a copy of the query for counting available cars
+    const baseQueryForCounting = { ...parsedQuery };
+    
+    // Count total available cars - add available: true filter to the base query
+    const availableCarsQuery = { ...baseQueryForCounting, available: true };
+    if (req.query.providerId) {
+      availableCarsQuery.provider_id = req.query.providerId;
+    }
+    
+    // Total count of all cars matching the query (including unavailable)
+    const totalCount = await Car.countDocuments(query.getQuery());
+    
+    // Total count of only available cars matching the query
+    const availableCount = await Car.countDocuments(availableCarsQuery);
+
     // Pagination
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 25;
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
-    const total = await Car.countDocuments(query.getQuery());
-    const totalCount = await Car.countDocuments(query.getQuery());
-    const totalMatchingCount = await Car.countDocuments(query.getQuery());
-
+    
     query = query.skip(startIndex).limit(limit);
 
     // Execute the query
@@ -59,7 +74,7 @@ exports.getCars = async (req, res, next) => {
 
     // Prepare pagination info
     const pagination = {};
-    if (endIndex < total) {
+    if (endIndex < totalCount) {
       pagination.next = {
         page: page + 1,
         limit,
@@ -75,8 +90,9 @@ exports.getCars = async (req, res, next) => {
     res.status(200).json({
       success: true,
       count: cars.length, // Items in current page
-      totalCount: totalCount, // Total matching items across all pages
-      totalMatchingCount: totalMatchingCount,
+      totalCount: totalCount, // Total matching items across all pages (available and unavailable)
+      availableCount: availableCount, // Total count of available cars only
+      totalMatchingCount: totalCount, // Keeping this for backward compatibility
       pagination,
       data: cars,
     });
