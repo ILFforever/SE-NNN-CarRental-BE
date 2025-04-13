@@ -49,17 +49,29 @@ exports.getCars = async (req, res, next) => {
     // Create a copy of the query for counting available cars
     const baseQueryForCounting = { ...parsedQuery };
     
-    // Count total available cars - add available: true filter to the base query
+    // Build the available cars query (only checks for available: true)
     const availableCarsQuery = { ...baseQueryForCounting, available: true };
     if (req.query.providerId) {
       availableCarsQuery.provider_id = req.query.providerId;
     }
-    
-    // Total count of all cars matching the query (including unavailable)
-    const totalCount = await Car.countDocuments(query.getQuery());
-    
-    // Total count of only available cars matching the query
-    const availableCount = await Car.countDocuments(availableCarsQuery);
+
+    // Total count of only available cars (ignoring sorting)
+    const totalCount = await Car.countDocuments(availableCarsQuery);
+
+    // For totalMatchingCount, use the full query with sorting and availability
+    // Clone the main query and add available: true filter
+    const matchingQuery = Car.find({ ...query.getQuery(), available: true });
+
+    // Apply the same sorting as the main query
+    if (req.query.sort) {
+      const sortBy = req.query.sort.split(",").join(" ");
+      matchingQuery.sort(sortBy);
+    } else {
+      matchingQuery.sort("-manufactureDate");
+    }
+
+    // Count the matching documents
+    const totalMatchingCount = await Car.countDocuments(matchingQuery.getQuery());
 
     // Pagination
     const page = parseInt(req.query.page, 10) || 1;
@@ -90,8 +102,8 @@ exports.getCars = async (req, res, next) => {
     res.status(200).json({
       success: true,
       count: cars.length, // Items in current page
-      totalCount: totalCount, // Total matching items across all pages (available and unavailable)
-      totalMatchingCount: availableCount, // Total Available count
+      totalCount: totalCount, // All available cars (ignoring sorting)
+      totalMatchingCount: totalMatchingCount, // Available cars that match sorting criteria
       pagination,
       data: cars,
     });
