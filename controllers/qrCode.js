@@ -9,7 +9,7 @@ exports.topup = asyncHandler(async (req, res) => {
   if (!uid || !cash) {
     return res
       .status(400)
-      .json({ error: "Missing uid or cash query parameter" });
+      .json({ success: false, message: "Missing uid or cash query parameter" });
   }
 
   try {
@@ -33,7 +33,7 @@ exports.topup = asyncHandler(async (req, res) => {
     console.error("Error generating QR code:", error);
     res
       .status(500)
-      .json({ success: false, error: "Failed to generate QR code" });
+      .json({ success: false, message: "Failed to generate QR code" });
   }
 });
 
