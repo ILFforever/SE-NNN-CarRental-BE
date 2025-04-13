@@ -91,8 +91,7 @@ exports.getCars = async (req, res, next) => {
       success: true,
       count: cars.length, // Items in current page
       totalCount: totalCount, // Total matching items across all pages (available and unavailable)
-      availableCount: availableCount, // Total count of available cars only
-      totalMatchingCount: totalCount, // Keeping this for backward compatibility
+      totalMatchingCount: availableCount, // Total Available count
       pagination,
       data: cars,
     });
