@@ -17,7 +17,8 @@ exports.topup = asyncHandler(async (req, res) => {
     const hash = await generateQRHash(uid, cash);
     await generateQR(
       passThrough,
-      "https://se-nnn-carrental-be.fly.dev/api/v1/qrcode/recieve?trans_id=" + hash
+      "https://se-nnn-carrental-be.fly.dev/api/v1/qrcode/recieve?trans_id=" +
+        hash
     );
     await redis.set(
       hash,
@@ -98,6 +99,7 @@ exports.getStatus = asyncHandler(async (req, res) => {
     return res.status(400).json({
       success: false,
       message: "Please provide transaction id",
+    });
   }
 
   const hashRaw = await redis.get(trans_id);
