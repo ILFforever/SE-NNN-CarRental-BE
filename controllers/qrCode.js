@@ -97,8 +97,7 @@ exports.getStatus = asyncHandler(async (req, res) => {
   if (!trans_id) {
     return res.status(400).json({
       success: false,
-      message: "Please provie transaction id",
-    });
+      message: "Please provide transaction id",
   }
 
   const hashRaw = await redis.get(trans_id);
