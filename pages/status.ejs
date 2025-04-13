@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Top-up Transaction</title>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Prompt', sans-serif;
+            background-color: #f0ebe2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        
+        .status-card {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+            padding: 30px;
+            width: 400px;
+            text-align: center;
+        }
+        
+        .icon-container {
+            width: 64px;  /* เพิ่มขนาดให้ใหญ่มาก */
+            height: 64px; /* เพิ่มขนาดให้ใหญ่มาก */
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 30px; /* เพิ่ม margin bottom */
+            transition: transform 0.3s ease;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .icon-container:hover {
+            transform: scale(1.05);
+        }
+        
+        .success-bg { background-color: #ecfdf5; }
+        .error-bg { background-color: #fef2f2; }
+        .pending-bg { background-color: #fffbeb; }
+        
+        .status-icon {
+            font-size: 80px; /* หรือ 100px ก็ได้ */
+        }
+        
+        .success-icon { color: #10b981; }
+        .error-icon { color: #ef4444; }
+        .pending-icon { color: #f59e0b; }
+        
+        .status-title {
+            font-size: 24px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: #333;
+        }
+        
+        .status-message {
+            font-size: 16px;
+            line-height: 1.5;
+            color: #666;
+            margin-bottom: 24px;
+        }
+        
+        .transaction-details {
+            background-color: #f9fafb;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            text-align: left;
+        }
+        
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .detail-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .detail-value {
+            font-weight: 500;
+            color: #374151;
+            font-size: 14px;
+        }
+        
+        .button {
+            background-color: #a08f6d;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            display: inline-block;
+            text-decoration: none;
+            margin-top: 10px;
+        }
+        
+        .button:hover {
+            background-color: #8a7a5c;
+        }
+    </style>
+</head>
+<body>
+    <div class="status-card">
+        <% 
+        let iconClass = "";
+        let statusIcon = "";
+        let bgClass = "";
+        
+        // กำหนดไอคอนและสีตามสถานะ
+        if (locals.status) {
+            switch(locals.status) {
+                case 'success':
+                    iconClass = "success-icon";
+                    bgClass = "success-bg";
+                    statusIcon = "fa-circle-check";
+                    break;
+                case 'error':
+                    iconClass = "error-icon";
+                    bgClass = "error-bg";
+                    statusIcon = "fa-circle-xmark";
+                    break;
+                case 'expired':
+                    iconClass = "error-icon";
+                    bgClass = "error-bg";
+                    statusIcon = "fa-circle-xmark";
+                    break;
+                case 'pending':
+                    iconClass = "pending-icon";
+                    bgClass = "pending-bg";
+                    statusIcon = "fa-clock";
+                    break;
+                case 'already processed':
+                    iconClass = "error-icon";
+                    bgClass = "error-bg";
+                    statusIcon = "fa-circle-xmark";
+                    break;
+                default:
+                    iconClass = "success-icon";
+                    bgClass = "success-bg";
+                    statusIcon = "fa-circle-check";
+            }
+        } else {
+            iconClass = "success-icon";
+            bgClass = "success-bg";
+            statusIcon = "fa-circle-check";
+        }
+        %>
+        
+        <div class="icon-container <%= bgClass %>">
+            <h1 class="fa-solid <%= statusIcon %> <%= iconClass %>"></h1>
+        </div>
+        
+        <h2 class="status-title">
+            <% if (locals.status === 'success') { %>
+                <%= locals.title || 'Complete' %>
+            <% } else if (locals.status === 'error' || locals.status === 'failed') { %>
+                <%= locals.title || 'Error' %>
+            <% } else if (locals.status === 'pending') { %>
+                <%= locals.title || 'In Progress' %>
+            <% } else if (locals.status === 'expired') { %>
+                <%= locals.title || 'Status' %>
+            <% } else { %>
+                <%= locals.title || 'Status' %>
+            <% } %>
+        </h2>
+        
+        <p class="status-message">
+            <% if (locals.status === 'success') { %>
+                <%= locals.message || 'Your cash has been top-up to your balance.' %>
+            <% } else if (locals.status === 'error' || locals.status === 'failed') { %>
+                <%= locals.message || 'The system occured error. Please Try again later.' %>
+            <% } else if (locals.status === 'missing') { %>
+                <%= locals.message || 'Your urls is broken.' %>
+            <% } else if (locals.status === 'expired') { %>
+                <%= locals.message || 'Your transaction is expired.' %>
+            <% } else if (locals.status === 'pending') { %>
+                <%= locals.message || 'Your transaction is in verify step from system. Please wait a moment.' %>
+            <% } else if (locals.status === 'already processed') { %>
+                <%= locals.message || 'Your transaction is already processed.' %>
+            <% } else { %>
+                <%= locals.message || 'Thanks you.' %>
+            <% } %>
+        </p>
+        
+        <% if (locals.showDetails && locals.transactionDetails) { %>
+        <div class="transaction-details">
+            <% Object.entries(locals.transactionDetails).forEach(([key, value]) => { %>
+            <div class="detail-item">
+                <span class="detail-label"><%= key %></span>
+                <span class="detail-value"><%= value %></span>
+            </div>
+            <% }); %>
+        </div>
+        <% } %>
+        
+        <a href="<%= locals.buttonLink || 'https://se-cedt-rentals.vercel.app/' %>" class="button">
+            <%= locals.buttonText || 'Back to Home' %>
+        </a>
+    </div>
+</body>
+</html>
