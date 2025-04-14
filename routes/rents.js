@@ -1,4 +1,5 @@
-// Updated version of routes/rents.js
+// Update routes/rents.js to include the new endpoint
+
 const express = require('express');
 const { 
     getUserRents,
@@ -11,7 +12,8 @@ const {
     confirmRent,
     getProviderRents,
     cancelRent,
-    rateProvider  // Add the new controller function
+    rateProvider,
+    markAsPaid  // Add the new controller function
 } = require('../controllers/rents');
 
 const router = express.Router({ mergeParams: true });
@@ -49,6 +51,11 @@ router
     .route('/:id/complete')
     .put(completeRent);
 
+// Mark a rent as paid (change from unpaid to completed)
+router
+    .route('/:id/paid')
+    .put(markAsPaid);
+
 // Confirm route - now accessible by both admin and provider
 router
     .route('/:id/confirm')
@@ -62,4 +69,5 @@ router
 router
     .route('/:id/rate')
     .post(rateProvider);
+
 module.exports = router;

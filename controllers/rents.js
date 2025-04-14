@@ -484,19 +484,19 @@ exports.deleteRent = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Complete rent (return car)
+// @desc    Complete rent (return car) - now changes status to "unpaid" instead of "completed"
 // @route   PUT /api/v1/rents/:id/complete
 // @access  Private
 exports.completeRent = asyncHandler(async (req, res, next) => {
   let rent = await Rent.findById(req.params.id).populate({
-    path: "car",
-    select: "tier", // Ensure the tier field is included
+    path: 'car',
+    select: 'tier' // Ensure the tier field is included
   });
 
   if (!rent) {
     return res.status(404).json({
       success: false,
-      message: `No rent with the id of ${req.params.id}`,
+      message: `No rent with the id of ${req.params.id}`
     });
   }
 
@@ -507,7 +507,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   let isAuthorized = false;
 
   if (req.user) {
-    if (req.user.role === "admin") {
+    if (req.user.role === 'admin') {
       // Admin can complete any rental
       isAuthorized = true;
     } else if (rent.user.toString() === req.user.id) {
@@ -517,7 +517,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   } else if (req.provider) {
     // For provider, check if the car belongs to them
     const car = await Car.findById(rent.car);
-
+    
     if (car && car.provider_id.toString() === req.provider.id) {
       isAuthorized = true;
     }
@@ -526,14 +526,15 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   if (!isAuthorized) {
     return res.status(403).json({
       success: false,
-      message: "Not authorized to complete this rental",
+      message: 'Not authorized to complete this rental'
     });
   }
 
-  if (rent.status === "completed") {
+  // Check if rental is already in a final state
+  if (rent.status === 'completed' || rent.status === 'cancelled' || rent.status === 'unpaid') {
     return res.status(400).json({
       success: false,
-      message: `Rent has already been completed`,
+      message: `Rent has already been ${rent.status}`
     });
   }
 
@@ -544,45 +545,43 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   let user = await User.findById(rent.user);
   if (user) {
     // Include the finalPrice in the total spend calculation
-    const totalSpend =
-      rent.finalPrice ||
-      rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0);
+    const totalSpend = rent.finalPrice || (rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0));
     user.total_spend += totalSpend;
     await user.save(); // This triggers pre-save middleware
   }
-
-  const carInfo = await Car.findById(rent.car);
+ 
+  const carInfo = await Car.findByIdAndUpdate(rent.car, { available: true });
   let daysLate = 0;
   let lateFee = 0;
   if (today > returnDate) {
     daysLate = Math.ceil((today - returnDate) / (1000 * 60 * 60 * 24));
     lateFee = (rent.car.tier + 1) * 500 * daysLate;
-  }
-
+  } 
+  
   // Calculate total price including late fees
-  const baseRentalCost =
-    rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0);
+  const baseRentalCost = rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0);
   const finalPriceWithLateFees = baseRentalCost + lateFee;
 
   // Update the rent with completion details
-  let updateData = {
-    status: "completed",
+  // Changed status to "unpaid" instead of "completed"
+  let updateData = { 
+    status: 'unpaid', // Changed from 'completed' to 'unpaid'
     actualReturnDate: new Date(),
-    ...req.body,
+    ...req.body
   };
 
   // Add late fees if applicable
   if (lateFee > 0) {
     updateData.additionalCharges = {
       ...(rent.additionalCharges || {}),
-      lateFee: lateFee,
+      lateFee: lateFee
     };
     updateData.finalPrice = finalPriceWithLateFees;
   }
 
   rent = await Rent.findByIdAndUpdate(req.params.id, updateData, {
     new: true,
-    runValidators: true,
+    runValidators: true
   });
 
   // Detect provider car equal with 10
@@ -590,14 +589,14 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
     carInfo.provider_id,
     { $inc: { completeRent: 1 } },
     { new: true }
-  );
+  )
 
   if (providerProfile.completeRent == 10) {
     await Car_Provider.findByIdAndUpdate(
       carInfo.provider_id,
       { $set: { verified: true } },
       { new: true }
-    );
+    )
   }
 
   res.status(200).json({
@@ -609,6 +608,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
     car_tier: rent.car.tier,
     final_price: rent.finalPrice || finalPriceWithLateFees,
     data: rent,
+    message: 'Rental marked as unpaid successfully' // Added a message to indicate new status
   });
 });
 
@@ -833,5 +833,64 @@ exports.rateProvider = asyncHandler(async (req, res, next) => {
     success: true,
     message: "Provider rated successfully",
     data: provider.review,
+  });
+});
+
+// @desc    Mark rental as paid (change from unpaid to completed)
+// @route   PUT /api/v1/rents/:id/paid
+// @access  Private/Admin/Provider
+exports.markAsPaid = asyncHandler(async (req, res, next) => {
+  let rent = await Rent.findById(req.params.id);
+
+  if (!rent) {
+    return res.status(404).json({
+      success: false,
+      message: `No rent with the id of ${req.params.id}`
+    });
+  }
+
+  // Check authorization
+  let isAuthorized = false;
+
+  if (req.user && req.user.role === 'admin') {
+    // Admin can mark any rental as paid
+    isAuthorized = true;
+  } else if (req.provider) {
+    // For provider, check if the car belongs to them
+    const car = await Car.findById(rent.car);
+    
+    if (car && car.provider_id.toString() === req.provider.id) {
+      isAuthorized = true;
+    }
+  }
+
+  if (!isAuthorized) {
+    return res.status(403).json({
+      success: false,
+      message: 'Not authorized to mark this rental as paid'
+    });
+  }
+
+  // Only unpaid rentals can be marked as completed
+  if (rent.status !== 'unpaid') {
+    return res.status(400).json({
+      success: false,
+      message: `Only unpaid rentals can be marked as paid. Current status: ${rent.status}`
+    });
+  }
+
+  // Set status to completed
+  rent = await Rent.findByIdAndUpdate(req.params.id, { 
+    status: 'completed',
+    ...req.body // Allow additional fields to be updated (like payment reference, etc.)
+  }, {
+    new: true,
+    runValidators: true
+  });
+
+  res.status(200).json({
+    success: true,
+    data: rent,
+    message: 'Rental marked as paid and completed successfully'
   });
 });

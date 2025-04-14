@@ -1,3 +1,5 @@
+// Update the status field in models/Rent.js
+
 const mongoose = require('mongoose');
 
 const RentSchema = new mongoose.Schema({
@@ -15,7 +17,7 @@ const RentSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['pending', 'active', 'completed', 'cancelled'],
+        enum: ['pending', 'active', 'completed', 'cancelled', 'unpaid'], // Added 'unpaid' status
         default: 'pending'
     },
     price: {
