@@ -1,5 +1,5 @@
 const express = require('express');
-const { register, login, getCurrentUser, logout, getAdmins, deleteAdmin, getUsers, deleteUser, addFavoriteCar, removeFavoriteCar, getCreditsHistory} = require('../controllers/auth');
+const { register, login, getCurrentUser, logout, getAdmins, deleteAdmin, getUsers, deleteUser, addFavoriteCar, removeFavoriteCar} = require('../controllers/auth');
 
 const router = express.Router();
 
@@ -17,7 +17,5 @@ router.delete('/favorite',protect,  removeFavoriteCar);
 
 router.delete('/admins/:id', protect, authorize('admin'), deleteAdmin);
 router.delete('/users/:id', protect, authorize('admin'), deleteUser);
-
-router.get('/credits-history', protect, getCreditsHistory);
 
 module.exports = router;

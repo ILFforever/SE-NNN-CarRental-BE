@@ -34,18 +34,95 @@ const validateAndGetUser = async (userId) => {
     return user;
 };
 
-// @desc    Get user's current credit balance and history
+// @desc    Get user's current credit balance and history with pagination and search
 // @route   GET /api/v1/credits
 // @access  Private
 exports.getCredits = asyncHandler(async (req, res) => {
     try {
         const user = await validateAndGetUser(req.user.id);
         
+        // Parse pagination parameters
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const startIndex = (page - 1) * limit;
+        
+        // Get search query parameters
+        const searchType = req.query.type; // Filter by transaction type: 'deposit', 'payment', 'refund'
+        const searchQuery = req.query.query?.toLowerCase(); // Text search in description
+        const fromDate = req.query.from ? new Date(req.query.from) : null; // Filter by date range
+        const toDate = req.query.to ? new Date(req.query.to) : null;
+        
+        // Clone and filter history array based on search parameters
+        let filteredHistory = user.creditsHistory ? [...user.creditsHistory] : [];
+        
+        // Apply type filter
+        if (searchType) {
+            filteredHistory = filteredHistory.filter(item => item.type === searchType);
+        }
+        
+        // Apply text search on description
+        if (searchQuery) {
+            filteredHistory = filteredHistory.filter(item => 
+                item.description?.toLowerCase().includes(searchQuery)
+            );
+        }
+        
+        // Apply date range filters
+        if (fromDate && !isNaN(fromDate.getTime())) {
+            filteredHistory = filteredHistory.filter(item => 
+                new Date(item.transactionDate) >= fromDate
+            );
+        }
+        
+        if (toDate && !isNaN(toDate.getTime())) {
+            filteredHistory = filteredHistory.filter(item => 
+                new Date(item.transactionDate) <= toDate
+            );
+        }
+        
+        // Sort by transaction date (newest first)
+        filteredHistory.sort((a, b) => 
+            new Date(b.transactionDate) - new Date(a.transactionDate)
+        );
+        
+        // Get total count after filtering
+        const totalCount = filteredHistory.length;
+        const totalPages = Math.ceil(totalCount / limit);
+        
+        // Paginate the filtered results
+        const paginatedHistory = filteredHistory.slice(startIndex, startIndex + limit);
+        
+        // Prepare pagination metadata
+        const pagination = {};
+        
+        if (startIndex > 0) {
+            pagination.prev = {
+                page: page - 1,
+                limit
+            };
+        }
+        
+        if (startIndex + limit < totalCount) {
+            pagination.next = {
+                page: page + 1,
+                limit
+            };
+        }
+        
+        // Return response with pagination and filtered results
         res.status(200).json({
             success: true,
             data: {
                 credits: user.credits,
-                history: user.creditsHistory || []
+                history: {
+                    count: paginatedHistory.length,
+                    totalCount,
+                    totalPages,
+                    currentPage: page,
+                    limit,
+                    pagination,
+                    results: paginatedHistory
+                }
             }
         });
     } catch (error) {
