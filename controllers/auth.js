@@ -80,14 +80,105 @@ const sendTokenResponse = async (user, statusCode, res) => {
 // @desc    Get current Logged in user
 // @route   POST /api/v1/auth/curuser
 // @access  Private
-exports.getCurrentUser=async(req,res,next)=>{
-    const user=await User.findById(req.user.id);
+exports.getCurrentUser = async(req, res, next) => {
+    const user = await User.findById(req.user.id);
+    
+    // Create a user object without creditsHistory
+    const userWithoutCreditHistory = user.toObject();
+    
+    // Delete the creditsHistory field
+    if (userWithoutCreditHistory.creditsHistory) {
+        delete userWithoutCreditHistory.creditsHistory;
+    }
+    
+    // Send response
     res.status(200).json({
-        success:true,
-        data:user
+        success: true,
+        data: userWithoutCreditHistory
     });
 };
 
+
+// @desc    Get user's credit history with pagination
+// @route   GET /api/v1/auth/credits-history
+// @access  Private
+exports.getCreditsHistory = async(req, res, next) => {
+    try {
+        // Parse pagination parameters
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const startIndex = (page - 1) * limit;
+        
+        // Find the user first to ensure it exists
+        const user = await User.findById(req.user.id);
+        
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
+        // Handle case where user has no credit history yet
+        if (!user.creditsHistory || user.creditsHistory.length === 0) {
+            return res.status(200).json({
+                success: true,
+                count: 0,
+                totalCount: 0,
+                data: [],
+                page,
+                limit,
+                totalPages: 0
+            });
+        }
+        
+        // Get total count of history entries
+        const totalCount = user.creditsHistory.length;
+        const totalPages = Math.ceil(totalCount / limit);
+        
+        // Extract the paginated portion of history
+        // Sorting by transactionDate in descending order (newest first)
+        const sortedHistory = [...user.creditsHistory].sort((a, b) => 
+            new Date(b.transactionDate) - new Date(a.transactionDate)
+        );
+        const paginatedHistory = sortedHistory.slice(startIndex, startIndex + limit);
+        
+        // Prepare pagination info for the response
+        const pagination = {};
+        
+        if (startIndex > 0) {
+            pagination.prev = {
+                page: page - 1,
+                limit
+            };
+        }
+        
+        if (startIndex + limit < totalCount) {
+            pagination.next = {
+                page: page + 1,
+                limit
+            };
+        }
+        
+        // Return the paginated history with pagination metadata
+        res.status(200).json({
+            success: true,
+            count: paginatedHistory.length,
+            totalCount,
+            pagination,
+            data: paginatedHistory,
+            page,
+            limit,
+            totalPages
+        });
+    } catch (err) {
+        console.error('Error fetching credit history:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+};
 
 // @desc    Log user out / clear cookie
 // @route   GET /api/v1/auth/logout
