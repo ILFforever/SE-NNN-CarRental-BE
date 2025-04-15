@@ -42,7 +42,7 @@ app.use('/api/v1/Car_Provider', provide);
 app.use('/api/v1/auth', auth);
 app.use('/api/v1/services', services);
 app.use('/api/v1/qrcode', qrcode);
-
+app.use('/api/v1/credits', require('./routes/credits'));
 app.get('/', (req, res) => {
   res.send("Car Rental API is working!");
 })
