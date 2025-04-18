@@ -1,10 +1,7 @@
-// controllers/credits.js
 const User = require('../models/User');
 const Rent = require('../models/Rent');
+const Transaction = require('../models/Transaction');
 const mongoose = require('mongoose');
-
-// Decimal128 type can be used for precise monetary values if needed
-// const { Decimal128 } = mongoose.Types;
 const asyncHandler = require('express-async-handler');
 
 /**
@@ -34,95 +31,23 @@ const validateAndGetUser = async (userId) => {
     return user;
 };
 
-// @desc    Get user's current credit balance and history with pagination and search
+// @desc    Get user's current credit balance and transaction history
 // @route   GET /api/v1/credits
 // @access  Private
 exports.getCredits = asyncHandler(async (req, res) => {
     try {
         const user = await validateAndGetUser(req.user.id);
         
-        // Parse pagination parameters
-        const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 10;
-        const startIndex = (page - 1) * limit;
+        // Get the user's transaction history from the Transaction model
+        const transactions = await Transaction.find({ user: req.user.id })
+            .sort({ transactionDate: -1 })
+            .limit(50); // Get up to 50 most recent transactions
         
-        // Get search query parameters
-        const searchType = req.query.type; // Filter by transaction type: 'deposit', 'payment', 'refund'
-        const searchQuery = req.query.query?.toLowerCase(); // Text search in description
-        const fromDate = req.query.from ? new Date(req.query.from) : null; // Filter by date range
-        const toDate = req.query.to ? new Date(req.query.to) : null;
-        
-        // Clone and filter history array based on search parameters
-        let filteredHistory = user.creditsHistory ? [...user.creditsHistory] : [];
-        
-        // Apply type filter
-        if (searchType) {
-            filteredHistory = filteredHistory.filter(item => item.type === searchType);
-        }
-        
-        // Apply text search on description
-        if (searchQuery) {
-            filteredHistory = filteredHistory.filter(item => 
-                item.description?.toLowerCase().includes(searchQuery)
-            );
-        }
-        
-        // Apply date range filters
-        if (fromDate && !isNaN(fromDate.getTime())) {
-            filteredHistory = filteredHistory.filter(item => 
-                new Date(item.transactionDate) >= fromDate
-            );
-        }
-        
-        if (toDate && !isNaN(toDate.getTime())) {
-            filteredHistory = filteredHistory.filter(item => 
-                new Date(item.transactionDate) <= toDate
-            );
-        }
-        
-        // Sort by transaction date (newest first)
-        filteredHistory.sort((a, b) => 
-            new Date(b.transactionDate) - new Date(a.transactionDate)
-        );
-        
-        // Get total count after filtering
-        const totalCount = filteredHistory.length;
-        const totalPages = Math.ceil(totalCount / limit);
-        
-        // Paginate the filtered results
-        const paginatedHistory = filteredHistory.slice(startIndex, startIndex + limit);
-        
-        // Prepare pagination metadata
-        const pagination = {};
-        
-        if (startIndex > 0) {
-            pagination.prev = {
-                page: page - 1,
-                limit
-            };
-        }
-        
-        if (startIndex + limit < totalCount) {
-            pagination.next = {
-                page: page + 1,
-                limit
-            };
-        }
-        
-        // Return response with pagination and filtered results
         res.status(200).json({
             success: true,
             data: {
                 credits: user.credits,
-                history: {
-                    count: paginatedHistory.length,
-                    totalCount,
-                    totalPages,
-                    currentPage: page,
-                    limit,
-                    pagination,
-                    results: paginatedHistory
-                }
+                transactions
             }
         });
     } catch (error) {
@@ -157,29 +82,14 @@ exports.addCredits = asyncHandler(async (req, res) => {
         session = await mongoose.startSession();
         session.startTransaction();
         
-        // Use atomic operation to update credits
-        const result = await User.findOneAndUpdate(
-            { _id: req.user.id },
-            { 
-                $inc: { credits: roundedAmount },
-                $push: { 
-                    creditsHistory: {
-                        amount: roundedAmount,
-                        description: description || 'Credit deposit',
-                        type: 'deposit',
-                        reference: reference || null,
-                        transactionDate: new Date()
-                    }
-                }
-            },
-            { 
-                new: true, 
-                runValidators: true,
-                session
-            }
+        // Update user's credits
+        const user = await User.findByIdAndUpdate(
+            req.user.id,
+            { $inc: { credits: roundedAmount } },
+            { new: true, runValidators: true, session }
         );
         
-        if (!result) {
+        if (!user) {
             await session.abortTransaction();
             return res.status(404).json({
                 success: false,
@@ -187,16 +97,29 @@ exports.addCredits = asyncHandler(async (req, res) => {
             });
         }
         
+        // Create a new transaction record
+        const transaction = await Transaction.create(
+            [{
+                user: req.user.id,
+                amount: roundedAmount,
+                description: description || 'Credit deposit',
+                type: 'deposit',
+                reference: reference || null,
+                status: 'completed'
+            }],
+            { session }
+        );
+        
         // Commit transaction
         await session.commitTransaction();
         
         res.status(200).json({
             success: true,
             data: {
-                credits: result.credits,
-                transaction: result.creditsHistory[result.creditsHistory.length - 1]
+                credits: user.credits,
+                transaction: transaction[0]
             },
-            message: `${amount} credits added successfully`
+            message: `${roundedAmount} credits added successfully`
         });
     } catch (error) {
         // Abort transaction on error
@@ -239,38 +162,44 @@ exports.useCredits = asyncHandler(async (req, res) => {
         session = await mongoose.startSession();
         session.startTransaction();
         
-        // Use atomic operation to check balance and update in one operation
-        const result = await User.findOneAndUpdate(
-            { 
-                _id: req.user.id,
-                credits: { $gte: roundedAmount } // Check sufficient balance
-            },
-            { 
-                $inc: { credits: -roundedAmount },
-                $push: { 
-                    creditsHistory: {
-                        amount: -roundedAmount,
-                        description: description || 'Credit payment',
-                        type: 'payment',
-                        reference: reference || null,
-                        transactionDate: new Date()
-                    }
-                }
-            },
-            { 
-                new: true, 
-                runValidators: true,
-                session
-            }
-        );
+        // Check if user has enough credits
+        const user = await User.findById(req.user.id).session(session);
         
-        if (!result) {
+        if (!user) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
+        if (user.credits < roundedAmount) {
             await session.abortTransaction();
             return res.status(400).json({
                 success: false,
-                message: 'Insufficient credits or user not found'
+                message: 'Insufficient credits'
             });
         }
+        
+        // Update user's credits
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.id,
+            { $inc: { credits: -roundedAmount } },
+            { new: true, runValidators: true, session }
+        );
+        
+        // Create a new transaction record
+        const transaction = await Transaction.create(
+            [{
+                user: req.user.id,
+                amount: -roundedAmount,
+                description: description || 'Credit payment',
+                type: 'payment',
+                reference: reference || null,
+                status: 'completed'
+            }],
+            { session }
+        );
         
         // Commit transaction
         await session.commitTransaction();
@@ -278,10 +207,10 @@ exports.useCredits = asyncHandler(async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                credits: result.credits,
-                transaction: result.creditsHistory[result.creditsHistory.length - 1]
+                credits: updatedUser.credits,
+                transaction: transaction[0]
             },
-            message: `${amount} credits used successfully`
+            message: `${roundedAmount} credits used successfully`
         });
     } catch (error) {
         // Abort transaction on error
@@ -317,36 +246,21 @@ exports.refundCredits = asyncHandler(async (req, res) => {
             });
         }
         
-        // Validate amount format
-        validateAmount(amount);
+        // Validate amount format and round to 2 decimal places
+        const roundedAmount = validateAndRoundAmount(amount);
         
         // Start a transaction session
         session = await mongoose.startSession();
         session.startTransaction();
         
-        // Use atomic operation to update credits
-        const result = await User.findOneAndUpdate(
-            { _id: userId },
-            { 
-                $inc: { credits: parseFloat(amount) },
-                $push: { 
-                    creditsHistory: {
-                        amount: parseFloat(amount),
-                        description: description || 'Credit refund',
-                        type: 'refund',
-                        reference: reference || null,
-                        transactionDate: new Date()
-                    }
-                }
-            },
-            { 
-                new: true, 
-                runValidators: true,
-                session
-            }
+        // Update user's credits
+        const user = await User.findByIdAndUpdate(
+            userId,
+            { $inc: { credits: roundedAmount } },
+            { new: true, runValidators: true, session }
         );
         
-        if (!result) {
+        if (!user) {
             await session.abortTransaction();
             return res.status(404).json({
                 success: false,
@@ -354,17 +268,31 @@ exports.refundCredits = asyncHandler(async (req, res) => {
             });
         }
         
+        // Create a new transaction record
+        const transaction = await Transaction.create(
+            [{
+                user: userId,
+                amount: roundedAmount,
+                description: description || 'Credit refund',
+                type: 'refund',
+                reference: reference || null,
+                performedBy: req.user.id, // Admin who performed the refund
+                status: 'completed'
+            }],
+            { session }
+        );
+        
         // Commit transaction
         await session.commitTransaction();
         
         res.status(200).json({
             success: true,
             data: {
-                userId: result._id,
-                credits: result.credits,
-                transaction: result.creditsHistory[result.creditsHistory.length - 1]
+                userId: user._id,
+                credits: user.credits,
+                transaction: transaction[0]
             },
-            message: `${amount} credits refunded successfully to user ${result.name}`
+            message: `${roundedAmount} credits refunded successfully to user ${user.name}`
         });
     } catch (error) {
         // Abort transaction on error
@@ -414,89 +342,79 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
         session = await mongoose.startSession();
         session.startTransaction();
         
-        let result;
+        // Check user exists
+        const user = await User.findById(userId).session(session);
+        
+        if (!user) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
+        let updatedUser;
+        let transactionType;
+        let transactionAmount;
         
         switch (action) {
             case 'add':
-                result = await User.findOneAndUpdate(
-                    { _id: userId },
-                    { 
-                        $inc: { credits: roundedAmount },
-                        $push: { 
-                            creditsHistory: {
-                                amount: roundedAmount,
-                                description: description || 'Admin deposit',
-                                type: 'deposit',
-                                reference: reference || null,
-                                transactionDate: new Date()
-                            }
-                        }
-                    },
-                    { 
-                        new: true, 
-                        runValidators: true,
-                        session
-                    }
+                updatedUser = await User.findByIdAndUpdate(
+                    userId,
+                    { $inc: { credits: roundedAmount } },
+                    { new: true, runValidators: true, session }
                 );
+                transactionType = 'deposit';
+                transactionAmount = roundedAmount;
                 break;
                 
             case 'use':
-                result = await User.findOneAndUpdate(
-                    { 
-                        _id: userId,
-                        credits: { $gte: roundedAmount } // Check sufficient balance
-                    },
-                    { 
-                        $inc: { credits: -roundedAmount },
-                        $push: { 
-                            creditsHistory: {
-                                amount: -roundedAmount,
-                                description: description || 'Admin deduction',
-                                type: 'payment',
-                                reference: reference || null,
-                                transactionDate: new Date()
-                            }
-                        }
-                    },
-                    { 
-                        new: true, 
-                        runValidators: true,
-                        session
-                    }
+                // Check if user has enough credits
+                if (user.credits < roundedAmount) {
+                    await session.abortTransaction();
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Insufficient credits'
+                    });
+                }
+                
+                updatedUser = await User.findByIdAndUpdate(
+                    userId,
+                    { $inc: { credits: -roundedAmount } },
+                    { new: true, runValidators: true, session }
                 );
+                transactionType = 'withdrawal';
+                transactionAmount = -roundedAmount;
                 break;
                 
             case 'refund':
-                result = await User.findOneAndUpdate(
-                    { _id: userId },
-                    { 
-                        $inc: { credits: roundedAmount },
-                        $push: { 
-                            creditsHistory: {
-                                amount: roundedAmount,
-                                description: description || 'Admin refund',
-                                type: 'refund',
-                                reference: reference || null,
-                                transactionDate: new Date()
-                            }
-                        }
-                    },
-                    { 
-                        new: true, 
-                        runValidators: true,
-                        session
-                    }
+                updatedUser = await User.findByIdAndUpdate(
+                    userId,
+                    { $inc: { credits: roundedAmount } },
+                    { new: true, runValidators: true, session }
                 );
+                transactionType = 'refund';
+                transactionAmount = roundedAmount;
                 break;
         }
         
-        if (!result) {
-            await session.abortTransaction();
-            return res.status(action === 'use' ? 400 : 404).json({
-                success: false,
-                message: action === 'use' ? 'Insufficient credits or user not found' : 'User not found'
-            });
-        }
+        // Create a new transaction record
+        const transaction = await Transaction.create(
+            [{
+                user: userId,
+                amount: transactionAmount,
+                description: description || `Admin ${action}`,
+                type: transactionType,
+                reference: reference || null,
+                performedBy: req.user.id, // Admin who performed the action
+                status: 'completed',
+                metadata: { 
+                    adminAction: action,
+                    adminNote: req.body.adminNote || null
+                }
+            }],
+            { session }
+        );
         
         // Commit transaction
         await session.commitTransaction();
@@ -504,11 +422,11 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                userId: result._id,
-                credits: result.credits,
-                transaction: result.creditsHistory[result.creditsHistory.length - 1]
+                userId: updatedUser._id,
+                credits: updatedUser.credits,
+                transaction: transaction[0]
             },
-            message: `${amount} credits ${action === 'add' ? 'added to' : action === 'use' ? 'deducted from' : 'refunded to'} user ${result.name}`
+            message: `${roundedAmount} credits ${action === 'add' ? 'added to' : action === 'use' ? 'deducted from' : 'refunded to'} user ${updatedUser.name}`
         });
     } catch (error) {
         // Abort transaction on error
@@ -586,38 +504,52 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
         // Round to 2 decimal places to avoid floating point precision issues
         amountToPay = Math.round(amountToPay * 100) / 100;
         
-        // Use atomic operation to check balance and update in one operation
-        const user = await User.findOneAndUpdate(
-            { 
-                _id: req.user.id,
-                credits: { $gte: amountToPay } // Check sufficient balance
-            },
-            { 
-                $inc: { credits: -amountToPay },
-                $push: { 
-                    creditsHistory: {
-                        amount: -amountToPay,
-                        description: `Payment for rental #${rental._id}`,
-                        type: 'payment',
-                        reference: rental._id.toString(),
-                        transactionDate: new Date()
-                    }
-                }
-            },
-            { 
-                new: true, 
-                runValidators: true,
-                session
-            }
-        );
+        // Check if user has enough credits
+        const user = await User.findById(req.user.id).session(session);
         
         if (!user) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
+        if (user.credits < amountToPay) {
             await session.abortTransaction();
             return res.status(400).json({
                 success: false,
                 message: `Insufficient credits. You need ${amountToPay} credits to pay for this rental.`
             });
         }
+        
+        // Update user's credits
+        const updatedUser = await User.findByIdAndUpdate(
+            req.user.id,
+            { $inc: { credits: -amountToPay } },
+            { new: true, runValidators: true, session }
+        );
+        
+        // Create a new transaction record
+        const transaction = await Transaction.create(
+            [{
+                user: req.user.id,
+                amount: -amountToPay,
+                description: `Payment for rental #${rental._id}`,
+                type: 'payment',
+                reference: rental._id.toString(),
+                rental: rental._id, // Direct reference to the rental
+                status: 'completed',
+                metadata: {
+                    rentalDetails: {
+                        startDate: rental.startDate,
+                        returnDate: rental.returnDate,
+                        finalPrice: amountToPay
+                    }
+                }
+            }],
+            { session }
+        );
         
         // Update rental status to 'completed'
         rental.status = 'completed';
@@ -631,8 +563,9 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
             data: {
                 rentalId: rental._id,
                 amount: amountToPay,
-                remainingCredits: user.credits,
-                rentalStatus: rental.status
+                remainingCredits: updatedUser.credits,
+                rentalStatus: rental.status,
+                transaction: transaction[0]
             },
             message: `Rental paid successfully with ${amountToPay} credits`
         });
@@ -651,5 +584,222 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
         if (session) {
             session.endSession();
         }
+    }
+});
+
+// @desc    Get all transactions (admin only)
+// @route   GET /api/v1/credits/transactions
+// @access  Private (Admin only)
+exports.getAllTransactions = asyncHandler(async (req, res) => {
+    try {
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 25;
+        const startIndex = (page - 1) * limit;
+        
+        // Build query with filters
+        let query = {};
+        
+        // Filter by user
+        if (req.query.userId) {
+            query.user = req.query.userId;
+        }
+        
+        // Filter by type
+        if (req.query.type) {
+            if (Array.isArray(req.query.type)) {
+                query.type = { $in: req.query.type };
+            } else {
+                query.type = req.query.type;
+            }
+        }
+        
+        // Filter by status
+        if (req.query.status) {
+            if (Array.isArray(req.query.status)) {
+                query.status = { $in: req.query.status };
+            } else {
+                query.status = req.query.status;
+            }
+        }
+        
+        // Filter by date range
+        if (req.query.startDate || req.query.endDate) {
+            query.transactionDate = {};
+            
+            if (req.query.startDate) {
+                query.transactionDate.$gte = new Date(req.query.startDate);
+            }
+            
+            if (req.query.endDate) {
+                // Add one day to include the end date fully
+                const endDate = new Date(req.query.endDate);
+                endDate.setDate(endDate.getDate() + 1);
+                query.transactionDate.$lt = endDate;
+            }
+        }
+        
+        // Filter by minimum amount
+        if (req.query.minAmount) {
+            query.amount = { $gte: parseFloat(req.query.minAmount) };
+        }
+        
+        // Filter by maximum amount
+        if (req.query.maxAmount) {
+            if (!query.amount) query.amount = {};
+            query.amount.$lte = parseFloat(req.query.maxAmount);
+        }
+        
+        // Filter by rental
+        if (req.query.rentalId) {
+            query.rental = req.query.rentalId;
+        }
+        
+        // Search by description
+        if (req.query.search) {
+            query.description = { $regex: req.query.search, $options: 'i' };
+        }
+        
+        // Count total documents
+        const total = await Transaction.countDocuments(query);
+        
+        // Prepare sorting
+        let sort = {};
+        if (req.query.sort) {
+            const sortFields = req.query.sort.split(',');
+            
+            sortFields.forEach(field => {
+                if (field.startsWith('-')) {
+                    sort[field.substring(1)] = -1;
+                } else {
+                    sort[field] = 1;
+                }
+            });
+        } else {
+            // Default sorting by transaction date (newest first)
+            sort = { transactionDate: -1 };
+        }
+        
+        // Execute query with pagination and population
+        const transactions = await Transaction.find(query)
+            .populate('user', 'name email')
+            .populate('performedBy', 'name email')
+            .populate('rental', 'startDate returnDate status')
+            .sort(sort)
+            .skip(startIndex)
+            .limit(limit);
+        
+        // Calculate pagination info
+        const pagination = {};
+        
+        if (startIndex > 0) {
+            pagination.prev = {
+                page: page - 1,
+                limit
+            };
+        }
+        
+        if (startIndex + limit < total) {
+            pagination.next = {
+                page: page + 1,
+                limit
+            };
+        }
+        
+        // Calculate summary statistics if requested
+        let summary = null;
+        if (req.query.summary === 'true') {
+            const deposits = await Transaction.aggregate([
+                { $match: { ...query, type: 'deposit' } },
+                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+            ]);
+            
+            const payments = await Transaction.aggregate([
+                { $match: { ...query, type: 'payment' } },
+                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+            ]);
+            
+            const refunds = await Transaction.aggregate([
+                { $match: { ...query, type: 'refund' } },
+                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+            ]);
+            
+            const withdrawals = await Transaction.aggregate([
+                { $match: { ...query, type: 'withdrawal' } },
+                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+            ]);
+            
+            summary = {
+                deposits: {
+                    count: deposits[0]?.count || 0,
+                    total: deposits[0]?.total || 0
+                },
+                payments: {
+                    count: payments[0]?.count || 0,
+                    total: Math.abs(payments[0]?.total || 0)
+                },
+                refunds: {
+                    count: refunds[0]?.count || 0,
+                    total: refunds[0]?.total || 0
+                },
+                withdrawals: {
+                    count: withdrawals[0]?.count || 0,
+                    total: Math.abs(withdrawals[0]?.total || 0)
+                },
+                netFlow: (deposits[0]?.total || 0) + 
+                         (refunds[0]?.total || 0) + 
+                         (payments[0]?.total || 0) + 
+                         (withdrawals[0]?.total || 0)
+            };
+        }
+        
+        res.status(200).json({
+            success: true,
+            count: transactions.length,
+            total,
+            pagination,
+            summary,
+            data: transactions
+        });
+    } catch (error) {
+        console.error('Error fetching transactions:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// @desc    Get transaction details
+// @route   GET /api/v1/credits/transactions/:id
+// @access  Private (Admin only)
+exports.getTransactionById = asyncHandler(async (req, res) => {
+    try {
+        const transaction = await Transaction.findById(req.params.id)
+            .populate('user', 'name email telephone_number')
+            .populate('performedBy', 'name email role')
+            .populate({
+                path: 'rental',
+                populate: {
+                    path: 'car',
+                    select: 'brand model license_plate'
+                }
+            });
+            
+        if (!transaction) {
+            return res.status(404).json({
+                success: false,
+                message: 'Transaction not found'
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            data: transaction
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
     }
 });

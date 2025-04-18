@@ -1,4 +1,4 @@
-// Updated User schema with credits functionality
+// Updated User schema with simplified credit functionality
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -56,23 +56,7 @@ const UserSchema = new mongoose.Schema({
         type: Number,
         default: 0,
         min: [0, 'Credits cannot be negative']
-    },
-    creditsHistory: [{
-        amount: Number,
-        description: String,
-        type: {
-            type: String,
-            enum: ['deposit', 'withdrawal', 'payment', 'refund']
-        },
-        transactionDate: {
-            type: Date,
-            default: Date.now
-        },
-        reference: {
-            type: String,
-            default: null
-        }
-    }]
+    }
 });
 
 //Encrypt password using bcrypt
@@ -104,60 +88,7 @@ UserSchema.pre('save', async function(next) {
     next();
 });
 
-// Add credits to user account
-UserSchema.methods.addCredits = async function(amount, description = 'Deposit', reference = null) {
-    if (amount <= 0) {
-        throw new Error('Amount must be positive');
-    }
-    
-    this.credits += amount;
-    this.creditsHistory.push({
-        amount,
-        description,
-        type: 'deposit',
-        reference
-    });
-    
-    return await this.save();
-};
-
-// Use credits for payment
-UserSchema.methods.useCredits = async function(amount, description = 'Payment', reference = null) {
-    if (amount <= 0) {
-        throw new Error('Amount must be positive');
-    }
-    
-    if (this.credits < amount) {
-        throw new Error('Insufficient credits');
-    }
-    
-    this.credits -= amount;
-    this.creditsHistory.push({
-        amount: -amount,
-        description,
-        type: 'payment',
-        reference
-    });
-    
-    return await this.save();
-};
-
-// Refund credits to user account
-UserSchema.methods.refundCredits = async function(amount, description = 'Refund', reference = null) {
-    if (amount <= 0) {
-        throw new Error('Amount must be positive');
-    }
-    
-    this.credits += amount;
-    this.creditsHistory.push({
-        amount,
-        description,
-        type: 'refund',
-        reference
-    });
-    
-    return await this.save();
-};
+// Credit methods have been moved to the Transaction controller
 
 //match user entered password to hashed password in database
 UserSchema.methods.matchPassword = async function(enteredPassword){
