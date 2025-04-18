@@ -803,3 +803,189 @@ exports.getTransactionById = asyncHandler(async (req, res) => {
         });
     }
 });
+
+/**
+ * Get user's transaction history
+ * @route   GET /api/v1/credits/history
+ * @access  Private
+ */
+const asyncHandler = require('express-async-handler');
+const Transaction = require('../models/Transaction');
+const User = require('../models/User');
+
+exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
+    try {
+        // Get pagination parameters if provided, or use defaults
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 20;
+        const startIndex = (page - 1) * limit;
+        
+        // Build query with filters
+        let query = { user: req.user.id };
+        
+        // Filter by type
+        if (req.query.type) {
+            if (Array.isArray(req.query.type)) {
+                query.type = { $in: req.query.type };
+            } else {
+                query.type = req.query.type;
+            }
+        }
+        
+        // Filter by status
+        if (req.query.status) {
+            if (Array.isArray(req.query.status)) {
+                query.status = { $in: req.query.status };
+            } else {
+                query.status = req.query.status;
+            }
+        }
+        
+        // Filter by date range
+        if (req.query.startDate || req.query.endDate) {
+            query.transactionDate = {};
+            
+            if (req.query.startDate) {
+                query.transactionDate.$gte = new Date(req.query.startDate);
+            }
+            
+            if (req.query.endDate) {
+                // Add one day to include the end date fully
+                const endDate = new Date(req.query.endDate);
+                endDate.setDate(endDate.getDate() + 1);
+                query.transactionDate.$lt = endDate;
+            }
+        }
+        
+        // Filter by reference (e.g., rental ID)
+        if (req.query.reference) {
+            query.reference = req.query.reference;
+        }
+
+        // Filter by rental ID
+        if (req.query.rentalId) {
+            query.rental = req.query.rentalId;
+        }
+
+        // Search in description
+        if (req.query.search) {
+            query.description = { $regex: req.query.search, $options: 'i' };
+        }
+        
+        // Count total documents matching the query
+        const total = await Transaction.countDocuments(query);
+        
+        // Prepare sorting (newest first by default)
+        let sort = { transactionDate: -1 };
+        
+        // Allow custom sorting if specified
+        if (req.query.sort) {
+            sort = {};
+            const sortParams = req.query.sort.split(',');
+            
+            sortParams.forEach(param => {
+                if (param.startsWith('-')) {
+                    sort[param.substring(1)] = -1;
+                } else {
+                    sort[param] = 1;
+                }
+            });
+        }
+        
+        // Execute query with pagination and joins
+        const transactions = await Transaction.find(query)
+            .populate({
+                path: 'rental',
+                select: 'startDate returnDate status finalPrice car',
+                populate: {
+                    path: 'car',
+                    select: 'brand model license_plate'
+                }
+            })
+            .sort(sort)
+            .skip(startIndex)
+            .limit(limit);
+        
+        // Calculate pagination info
+        const pagination = {};
+        
+        if (startIndex > 0) {
+            pagination.prev = {
+                page: page - 1,
+                limit
+            };
+        }
+        
+        if (startIndex + limit < total) {
+            pagination.next = {
+                page: page + 1,
+                limit
+            };
+        }
+        
+        // Get user's current credit balance
+        const user = await User.findById(req.user.id);
+        
+        // Calculate summary statistics
+        const deposits = await Transaction.aggregate([
+            { $match: { ...query, type: 'deposit' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const payments = await Transaction.aggregate([
+            { $match: { ...query, type: 'payment' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const refunds = await Transaction.aggregate([
+            { $match: { ...query, type: 'refund' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const withdrawals = await Transaction.aggregate([
+            { $match: { ...query, type: 'withdrawal' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const summary = {
+            deposits: {
+                count: deposits.length > 0 ? deposits[0].count : 0,
+                total: deposits.length > 0 ? deposits[0].total : 0
+            },
+            payments: {
+                count: payments.length > 0 ? payments[0].count : 0,
+                total: payments.length > 0 ? Math.abs(payments[0].total) : 0
+            },
+            refunds: {
+                count: refunds.length > 0 ? refunds[0].count : 0,
+                total: refunds.length > 0 ? refunds[0].total : 0
+            },
+            withdrawals: {
+                count: withdrawals.length > 0 ? withdrawals[0].count : 0,
+                total: withdrawals.length > 0 ? Math.abs(withdrawals[0].total) : 0
+            }
+        };
+        
+        // Add net flow (credits in - credits out)
+        summary.netFlow = (summary.deposits.total + summary.refunds.total) - 
+                         (summary.payments.total + summary.withdrawals.total);
+        
+        res.status(200).json({
+            success: true,
+            count: transactions.length,
+            total,
+            pagination,
+            summary,
+            data: {
+                currentCredits: user ? user.credits : 0,
+                transactions
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching user transaction history:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
