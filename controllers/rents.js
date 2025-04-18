@@ -282,7 +282,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
   // Check if the user already has 3 active/pending rentals (Admins can bypass this)
   const existingRents = await Rent.find({
     user: req.body.user,
-    status: { $in: ["active", "pending"] },
+    status: { $in: ["active", "pending", "unpaid"] },
   });
 
   if (existingRents.length >= 3 && req.user.role !== "admin") {
