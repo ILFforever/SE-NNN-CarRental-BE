@@ -809,9 +809,6 @@ exports.getTransactionById = asyncHandler(async (req, res) => {
  * @route   GET /api/v1/credits/history
  * @access  Private
  */
-const asyncHandler = require('express-async-handler');
-const Transaction = require('../models/Transaction');
-const User = require('../models/User');
 
 exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
     try {
