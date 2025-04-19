@@ -1,7 +1,5 @@
 const asyncHandler = require("express-async-handler");
-const { generateQR } = require("../utility/generateQR");
 const { generateQRHash } = require("../utility/generateHash");
-const stream = require("stream");
 const { redis } = require("../config/redis");
 
 exports.topup = asyncHandler(async (req, res) => {
@@ -13,22 +11,20 @@ exports.topup = asyncHandler(async (req, res) => {
   }
 
   try {
-    const passThrough = stream.PassThrough();
     const hash = await generateQRHash(uid, cash);
-    await generateQR(
-      passThrough,
-      "https://se-nnn-carrental-be.fly.dev/api/v1/qrcode/recieve?trans_id=" +
-        hash
-    );
+
     await redis.set(
       hash,
       JSON.stringify({ uid, cash, status: "pending" }),
       "EX",
       60 * 5
     );
-    res.setHeader("Content-Disposition", 'attachment; filename="qrcode.png"');
-    res.setHeader("Content-Type", "image/png");
-    passThrough.pipe(res);
+    
+    return res.status(200).json({
+      success: true,
+      message: "QR code generated successfully",
+      url: "https://droplet.ngixx.in.th/api/v1/qrcode/" + hash,
+    })
   } catch (error) {
     console.error("Error generating QR code:", error);
     res
