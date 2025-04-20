@@ -4,6 +4,8 @@ const Rent = require('../models/Rent');
 const Transaction = require('../models/Transaction');
 const mongoose = require('mongoose');
 const asyncHandler = require('express-async-handler');
+const { generateQRHash } = require('../utility/generateHash');
+const { redis } = require('../config/redis');
 
 /**
  * Helper function to get the authenticated entity (user or provider)
@@ -54,6 +56,99 @@ const validateAndGetEntity = async (id, model) => {
     }
     return entity;
 };
+
+// @desc Generate QR code for topup
+// @route POST /api/v1/credits/topup
+// @access Private
+exports.topupQrCode = asyncHandler(async (req, res) => {
+  const { uid, cash } = req.body;
+  if (!uid || !cash) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Missing uid or cash on body" });
+  }
+
+  try {
+    const hash = await generateQRHash(uid, cash);
+
+    await redis.set(
+      hash,
+      JSON.stringify({ uid, cash, status: "pending" }),
+      "EX",
+      60 * 5
+    );
+    
+    return res.status(200).json({
+      success: true,
+      message: "QR code generated successfully",
+      url: "https://droplet.ngixx.in.th/api/v1/qrcode/" + hash,
+    })
+  } catch (error) {
+    console.error("Error generating QR code:", error);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to generate QR code" });
+  }
+});
+
+// @desc Receive payment from QR code
+// @route GET /api/v1/credits/topup/retrieve?trans_id=hash
+// @access Private
+exports.receiveQrCode = asyncHandler(async (req, res) => {
+  const { trans_id } = req.query;
+  if (!trans_id) {
+    return res.status(400).render("pages/status", {
+      locals: {
+        uid: uid,
+        cash: cash,
+        status: "error",
+      },
+    });
+  }
+
+  // Lookup on redis
+  const hashData = await redis.get(trans_id);
+  if (hashData === null) {
+    return res.status(404).render("status", {
+      locals: {
+        status: "expired",
+      },
+    });
+  }
+  const { uid, cash, status } = JSON.parse(hashData);
+  if (status !== "pending") {
+    return res.status(400).render("status", {
+      locals: {
+        uid: uid,
+        cash: cash,
+        status: "already processed",
+        showDetails: true,
+        transactionDetails: {
+          uid: uid,
+          cash: cash,
+        },
+      },
+    });
+  } else {
+    await redis.set(
+      trans_id,
+      JSON.stringify({ uid, cash, status: "completed" }),
+      "EX",
+      60 * 5
+    );
+
+    res.status(200).render("status", {
+      locals: {
+        status: "success",
+        showDetails: true,
+        transactionDetails: {
+          uid: uid,
+          cash: cash,
+        },
+      },
+    });
+  }
+});
 
 // @desc    Get entity's current credit balance and transaction history
 // @route   GET /api/v1/credits
