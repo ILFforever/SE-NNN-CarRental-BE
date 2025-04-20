@@ -12,7 +12,7 @@ const {
     getTransactionById,
     getUserTransactionHistory,
     topupQrCode,
-    recieveQrCode
+    receiveQrCode
 } = require('../controllers/credits');
 
 const { protect, authorize } = require('../middleware/auth');
@@ -24,7 +24,7 @@ router.use(protect);
 router.get('/', getCredits);
 router.get('/history', getUserTransactionHistory);
 router.post('/topup', topupQrCode);
-router.get('/topup/retrieve', recieveQrCode);
+router.get('/topup/retrieve', receiveQrCode);
 router.post('/add', addCredits);
 router.post('/use', useCredits);
 router.post('/pay-rental/:rentalId', payRentalWithCredits);
