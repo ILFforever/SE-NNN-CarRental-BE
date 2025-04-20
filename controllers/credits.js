@@ -94,7 +94,7 @@ exports.topupQrCode = asyncHandler(async (req, res) => {
 // @desc Receive payment from QR code
 // @route GET /api/v1/credits/topup/retrieve?trans_id=hash
 // @access Private
-exports.recieveQrCode = asyncHandler(async (req, res) => {
+exports.receiveQrCode = asyncHandler(async (req, res) => {
   const { trans_id } = req.query;
   if (!trans_id) {
     return res.status(400).render("pages/status", {
