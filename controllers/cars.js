@@ -129,11 +129,14 @@ exports.getCar = async (req, res, next) => {
       .populate({
         path: "rents",
         strictPopulate: false,
+        default: []
       });
 
     if (!car) {
       return res.status(400).json({ success: false });
     }
+
+    car.rents = car.rents || [];
 
     res.status(200).json({ success: true, data: car });
   } catch (err) {
