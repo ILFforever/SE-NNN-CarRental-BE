@@ -1,8 +1,31 @@
 const User = require('../models/User');
+const Car_Provider = require('../models/Car_Provider'); // Add Car_Provider model
 const Rent = require('../models/Rent');
 const Transaction = require('../models/Transaction');
 const mongoose = require('mongoose');
 const asyncHandler = require('express-async-handler');
+
+/**
+ * Helper function to get the authenticated entity (user or provider)
+ * @param {Object} req - Request object
+ * @returns {Object} Object containing id and type
+ */
+const getAuthEntity = (req) => {
+    if (req.user) {
+        return { 
+            id: req.user.id, 
+            type: 'user',
+            model: User
+        };
+    } else if (req.provider) {
+        return { 
+            id: req.provider.id, 
+            type: 'provider',
+            model: Car_Provider
+        };
+    }
+    throw new Error('No authenticated entity found');
+};
 
 /**
  * Validate amount parameter and round to 2 decimal places
@@ -19,46 +42,53 @@ const validateAndRoundAmount = (amount) => {
 };
 
 /**
- * Validate user exists
- * @param {string} userId - User ID to validate
- * @returns {Promise<Object>} - User object if found, throws error if not found
+ * Validate entity exists
+ * @param {string} id - Entity ID to validate
+ * @param {Object} model - Mongoose model to query
+ * @returns {Promise<Object>} - Entity object if found, throws error if not found
  */
-const validateAndGetUser = async (userId) => {
-    const user = await User.findById(userId);
-    if (!user) {
-        throw new Error('User not found');
+const validateAndGetEntity = async (id, model) => {
+    const entity = await model.findById(id);
+    if (!entity) {
+        throw new Error(`Entity not found with ID: ${id}`);
     }
-    return user;
+    return entity;
 };
 
-// @desc    Get user's current credit balance and transaction history
+// @desc    Get entity's current credit balance and transaction history
 // @route   GET /api/v1/credits
 // @access  Private
 exports.getCredits = asyncHandler(async (req, res) => {
     try {
-        const user = await validateAndGetUser(req.user.id);
+        const auth = getAuthEntity(req);
         
-        // Get the user's transaction history from the Transaction model
-        const transactions = await Transaction.find({ user: req.user.id })
+        // Get the authenticated entity
+        const entity = await validateAndGetEntity(auth.id, auth.model);
+        
+        // Get the entity's transaction history from the Transaction model
+        // Use entity type field for flexible querying
+        const transactions = await Transaction.find({ 
+            [auth.type]: auth.id 
+        })
             .sort({ transactionDate: -1 })
             .limit(50); // Get up to 50 most recent transactions
         
         res.status(200).json({
             success: true,
             data: {
-                credits: user.credits,
+                credits: entity.credits || 0, // Default to 0 if credits field doesn't exist
                 transactions
             }
         });
     } catch (error) {
-        res.status(error.message === 'User not found' ? 404 : 500).json({
+        res.status(error.message.includes('not found') ? 404 : 500).json({
             success: false,
             message: error.message
         });
     }
 });
 
-// @desc    Add credits to user account
+// @desc    Add credits to entity account
 // @route   POST /api/v1/credits/add
 // @access  Private
 exports.addCredits = asyncHandler(async (req, res) => {
@@ -66,6 +96,7 @@ exports.addCredits = asyncHandler(async (req, res) => {
     
     try {
         const { amount, description, reference } = req.body;
+        const auth = getAuthEntity(req);
         
         // Validate required fields
         if (!amount) {
@@ -82,31 +113,45 @@ exports.addCredits = asyncHandler(async (req, res) => {
         session = await mongoose.startSession();
         session.startTransaction();
         
-        // Update user's credits
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
+        // Update entity's credits
+        // Check if credits field exists first and add it if it doesn't
+        const entity = await auth.model.findById(auth.id).session(session);
+        
+        if (!entity) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: `${auth.type.charAt(0).toUpperCase() + auth.type.slice(1)} not found`
+            });
+        }
+        
+        // Initialize credits field if it doesn't exist (particularly for providers)
+        if (entity.credits === undefined) {
+            entity.credits = 0;
+        }
+        
+        // Update credits
+        const updatedEntity = await auth.model.findByIdAndUpdate(
+            auth.id,
             { $inc: { credits: roundedAmount } },
             { new: true, runValidators: true, session }
         );
         
-        if (!user) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-        
         // Create a new transaction record
+        // Use dynamic field setting for entity type
+        const transactionData = {
+            amount: roundedAmount,
+            description: description || 'Credit deposit',
+            type: 'deposit',
+            reference: reference || null,
+            status: 'completed'
+        };
+        
+        // Set the entity field dynamically based on entity type
+        transactionData[auth.type] = auth.id;
+        
         const transaction = await Transaction.create(
-            [{
-                user: req.user.id,
-                amount: roundedAmount,
-                description: description || 'Credit deposit',
-                type: 'deposit',
-                reference: reference || null,
-                status: 'completed'
-            }],
+            [transactionData],
             { session }
         );
         
@@ -116,7 +161,7 @@ exports.addCredits = asyncHandler(async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                credits: user.credits,
+                credits: updatedEntity.credits,
                 transaction: transaction[0]
             },
             message: `${roundedAmount} credits added successfully`
@@ -146,6 +191,7 @@ exports.useCredits = asyncHandler(async (req, res) => {
     
     try {
         const { amount, description, reference } = req.body;
+        const auth = getAuthEntity(req);
         
         // Validate required fields
         if (!amount) {
@@ -162,18 +208,23 @@ exports.useCredits = asyncHandler(async (req, res) => {
         session = await mongoose.startSession();
         session.startTransaction();
         
-        // Check if user has enough credits
-        const user = await User.findById(req.user.id).session(session);
+        // Check if entity has enough credits
+        const entity = await auth.model.findById(auth.id).session(session);
         
-        if (!user) {
+        if (!entity) {
             await session.abortTransaction();
             return res.status(404).json({
                 success: false,
-                message: 'User not found'
+                message: `${auth.type.charAt(0).toUpperCase() + auth.type.slice(1)} not found`
             });
         }
         
-        if (user.credits < roundedAmount) {
+        // Initialize credits if needed
+        if (entity.credits === undefined) {
+            entity.credits = 0;
+        }
+        
+        if (entity.credits < roundedAmount) {
             await session.abortTransaction();
             return res.status(400).json({
                 success: false,
@@ -181,23 +232,27 @@ exports.useCredits = asyncHandler(async (req, res) => {
             });
         }
         
-        // Update user's credits
-        const updatedUser = await User.findByIdAndUpdate(
-            req.user.id,
+        // Update entity's credits
+        const updatedEntity = await auth.model.findByIdAndUpdate(
+            auth.id,
             { $inc: { credits: -roundedAmount } },
             { new: true, runValidators: true, session }
         );
         
         // Create a new transaction record
+        const transactionData = {
+            amount: -roundedAmount,
+            description: description || 'Credit payment',
+            type: 'payment',
+            reference: reference || null,
+            status: 'completed'
+        };
+        
+        // Set the entity field dynamically
+        transactionData[auth.type] = auth.id;
+        
         const transaction = await Transaction.create(
-            [{
-                user: req.user.id,
-                amount: -roundedAmount,
-                description: description || 'Credit payment',
-                type: 'payment',
-                reference: reference || null,
-                status: 'completed'
-            }],
+            [transactionData],
             { session }
         );
         
@@ -207,7 +262,7 @@ exports.useCredits = asyncHandler(async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                credits: updatedUser.credits,
+                credits: updatedEntity.credits,
                 transaction: transaction[0]
             },
             message: `${roundedAmount} credits used successfully`
@@ -229,22 +284,34 @@ exports.useCredits = asyncHandler(async (req, res) => {
     }
 });
 
-// @desc    Refund credits to user account
+// @desc    Refund credits to entity account
 // @route   POST /api/v1/credits/refund
 // @access  Private (Admin only)
 exports.refundCredits = asyncHandler(async (req, res) => {
     let session = null;
     
     try {
-        const { userId, amount, description, reference } = req.body;
+        const { userId, providerId, amount, description, reference } = req.body;
         
         // Validate required fields
-        if (!userId || !amount) {
+        if ((!userId && !providerId) || !amount) {
             return res.status(400).json({
                 success: false,
-                message: 'User ID and amount are required'
+                message: 'User ID or Provider ID, and amount are required'
             });
         }
+        
+        if (userId && providerId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Provide either userId OR providerId, not both'
+            });
+        }
+        
+        // Determine target entity type and ID
+        const entityType = userId ? 'user' : 'provider';
+        const entityId = userId || providerId;
+        const EntityModel = entityType === 'user' ? User : Car_Provider;
         
         // Validate amount format and round to 2 decimal places
         const roundedAmount = validateAndRoundAmount(amount);
@@ -253,32 +320,43 @@ exports.refundCredits = asyncHandler(async (req, res) => {
         session = await mongoose.startSession();
         session.startTransaction();
         
-        // Update user's credits
-        const user = await User.findByIdAndUpdate(
-            userId,
+        // Update entity's credits
+        const entity = await EntityModel.findById(entityId).session(session);
+        
+        if (!entity) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} not found`
+            });
+        }
+        
+        // Initialize credits if needed
+        if (entity.credits === undefined) {
+            entity.credits = 0;
+        }
+        
+        const updatedEntity = await EntityModel.findByIdAndUpdate(
+            entityId,
             { $inc: { credits: roundedAmount } },
             { new: true, runValidators: true, session }
         );
         
-        if (!user) {
-            await session.abortTransaction();
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-        
         // Create a new transaction record
+        const transactionData = {
+            amount: roundedAmount,
+            description: description || 'Credit refund',
+            type: 'refund',
+            reference: reference || null,
+            performedBy: req.user.id, // Admin who performed the refund
+            status: 'completed'
+        };
+        
+        // Set entity field dynamically
+        transactionData[entityType] = entityId;
+        
         const transaction = await Transaction.create(
-            [{
-                user: userId,
-                amount: roundedAmount,
-                description: description || 'Credit refund',
-                type: 'refund',
-                reference: reference || null,
-                performedBy: req.user.id, // Admin who performed the refund
-                status: 'completed'
-            }],
+            [transactionData],
             { session }
         );
         
@@ -288,11 +366,12 @@ exports.refundCredits = asyncHandler(async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                userId: user._id,
-                credits: user.credits,
+                entityId: updatedEntity._id,
+                entityType,
+                credits: updatedEntity.credits,
                 transaction: transaction[0]
             },
-            message: `${roundedAmount} credits refunded successfully to user ${user.name}`
+            message: `${roundedAmount} credits refunded successfully to ${entityType} ${updatedEntity.name}`
         });
     } catch (error) {
         // Abort transaction on error
@@ -311,20 +390,27 @@ exports.refundCredits = asyncHandler(async (req, res) => {
     }
 });
 
-// @desc    Admin endpoint to manage user credits
+// @desc    Admin endpoint to manage entity credits
 // @route   POST /api/v1/credits/admin/manage
 // @access  Private (Admin only)
 exports.adminManageCredits = asyncHandler(async (req, res) => {
     let session = null;
     
     try {
-        const { userId, action, amount, description, reference } = req.body;
+        const { userId, providerId, action, amount, description, reference } = req.body;
         
         // Validate required fields
-        if (!userId || !action || !amount) {
+        if ((!userId && !providerId) || !action || !amount) {
             return res.status(400).json({
                 success: false,
-                message: 'User ID, action, and amount are required'
+                message: 'User ID or Provider ID, action, and amount are required'
+            });
+        }
+        
+        if (userId && providerId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Provide either userId OR providerId, not both'
             });
         }
         
@@ -335,6 +421,11 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
             });
         }
         
+        // Determine target entity type and ID
+        const entityType = userId ? 'user' : 'provider';
+        const entityId = userId || providerId;
+        const EntityModel = entityType === 'user' ? User : Car_Provider;
+        
         // Validate amount format and round to 2 decimal places
         const roundedAmount = validateAndRoundAmount(amount);
         
@@ -342,25 +433,31 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
         session = await mongoose.startSession();
         session.startTransaction();
         
-        // Check user exists
-        const user = await User.findById(userId).session(session);
+        // Check entity exists
+        const entity = await EntityModel.findById(entityId).session(session);
         
-        if (!user) {
+        if (!entity) {
             await session.abortTransaction();
             return res.status(404).json({
                 success: false,
-                message: 'User not found'
+                message: `${entityType.charAt(0).toUpperCase() + entityType.slice(1)} not found`
             });
         }
         
-        let updatedUser;
+        // Initialize credits if needed
+        if (entity.credits === undefined) {
+            entity.credits = 0;
+            await entity.save({ session });
+        }
+        
+        let updatedEntity;
         let transactionType;
         let transactionAmount;
         
         switch (action) {
             case 'add':
-                updatedUser = await User.findByIdAndUpdate(
-                    userId,
+                updatedEntity = await EntityModel.findByIdAndUpdate(
+                    entityId,
                     { $inc: { credits: roundedAmount } },
                     { new: true, runValidators: true, session }
                 );
@@ -369,8 +466,8 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
                 break;
                 
             case 'use':
-                // Check if user has enough credits
-                if (user.credits < roundedAmount) {
+                // Check if entity has enough credits
+                if (entity.credits < roundedAmount) {
                     await session.abortTransaction();
                     return res.status(400).json({
                         success: false,
@@ -378,8 +475,8 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
                     });
                 }
                 
-                updatedUser = await User.findByIdAndUpdate(
-                    userId,
+                updatedEntity = await EntityModel.findByIdAndUpdate(
+                    entityId,
                     { $inc: { credits: -roundedAmount } },
                     { new: true, runValidators: true, session }
                 );
@@ -388,8 +485,8 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
                 break;
                 
             case 'refund':
-                updatedUser = await User.findByIdAndUpdate(
-                    userId,
+                updatedEntity = await EntityModel.findByIdAndUpdate(
+                    entityId,
                     { $inc: { credits: roundedAmount } },
                     { new: true, runValidators: true, session }
                 );
@@ -399,20 +496,24 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
         }
         
         // Create a new transaction record
+        const transactionData = {
+            amount: transactionAmount,
+            description: description || `Admin ${action}`,
+            type: transactionType,
+            reference: reference || null,
+            performedBy: req.user.id, // Admin who performed the action
+            status: 'completed',
+            metadata: { 
+                adminAction: action,
+                adminNote: req.body.adminNote || null
+            }
+        };
+        
+        // Set entity field dynamically
+        transactionData[entityType] = entityId;
+        
         const transaction = await Transaction.create(
-            [{
-                user: userId,
-                amount: transactionAmount,
-                description: description || `Admin ${action}`,
-                type: transactionType,
-                reference: reference || null,
-                performedBy: req.user.id, // Admin who performed the action
-                status: 'completed',
-                metadata: { 
-                    adminAction: action,
-                    adminNote: req.body.adminNote || null
-                }
-            }],
+            [transactionData],
             { session }
         );
         
@@ -422,11 +523,12 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
         res.status(200).json({
             success: true,
             data: {
-                userId: updatedUser._id,
-                credits: updatedUser.credits,
+                entityId: updatedEntity._id,
+                entityType,
+                credits: updatedEntity.credits,
                 transaction: transaction[0]
             },
-            message: `${roundedAmount} credits ${action === 'add' ? 'added to' : action === 'use' ? 'deducted from' : 'refunded to'} user ${updatedUser.name}`
+            message: `${roundedAmount} credits ${action === 'add' ? 'added to' : action === 'use' ? 'deducted from' : 'refunded to'} ${entityType} ${updatedEntity.name}`
         });
     } catch (error) {
         // Abort transaction on error
@@ -453,6 +555,7 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
     
     try {
         const { rentalId } = req.params;
+        const auth = getAuthEntity(req);
         
         // Validate rental ID
         if (!rentalId || !mongoose.Types.ObjectId.isValid(rentalId)) {
@@ -477,13 +580,27 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
             });
         }
         
-        // Check if the rental belongs to the current user
-        if (rental.user.toString() !== req.user.id) {
-            await session.abortTransaction();
-            return res.status(403).json({
-                success: false,
-                message: 'You are not authorized to pay for this rental'
-            });
+        // Check authorization based on entity type
+        if (auth.type === 'user') {
+            // Check if the rental belongs to the current user
+            if (rental.user.toString() !== auth.id) {
+                await session.abortTransaction();
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not authorized to pay for this rental'
+                });
+            }
+        } else if (auth.type === 'provider') {
+            // For providers, check if they own the car in the rental
+            const car = await Car.findById(rental.car).session(session);
+            
+            if (!car || car.provider_id.toString() !== auth.id) {
+                await session.abortTransaction();
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not authorized to pay for this rental'
+                });
+            }
         }
         
         // Check if the rental is in 'unpaid' status
@@ -504,18 +621,24 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
         // Round to 2 decimal places to avoid floating point precision issues
         amountToPay = Math.round(amountToPay * 100) / 100;
         
-        // Check if user has enough credits
-        const user = await User.findById(req.user.id).session(session);
+        // Check if entity has enough credits
+        const entity = await auth.model.findById(auth.id).session(session);
         
-        if (!user) {
+        if (!entity) {
             await session.abortTransaction();
             return res.status(404).json({
                 success: false,
-                message: 'User not found'
+                message: `${auth.type.charAt(0).toUpperCase() + auth.type.slice(1)} not found`
             });
         }
         
-        if (user.credits < amountToPay) {
+        // Initialize credits if needed
+        if (entity.credits === undefined) {
+            entity.credits = 0;
+            await entity.save({ session });
+        }
+        
+        if (entity.credits < amountToPay) {
             await session.abortTransaction();
             return res.status(400).json({
                 success: false,
@@ -523,31 +646,35 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
             });
         }
         
-        // Update user's credits
-        const updatedUser = await User.findByIdAndUpdate(
-            req.user.id,
+        // Update entity's credits
+        const updatedEntity = await auth.model.findByIdAndUpdate(
+            auth.id,
             { $inc: { credits: -amountToPay } },
             { new: true, runValidators: true, session }
         );
         
         // Create a new transaction record
-        const transaction = await Transaction.create(
-            [{
-                user: req.user.id,
-                amount: -amountToPay,
-                description: `Payment for rental #${rental._id}`,
-                type: 'payment',
-                reference: rental._id.toString(),
-                rental: rental._id, // Direct reference to the rental
-                status: 'completed',
-                metadata: {
-                    rentalDetails: {
-                        startDate: rental.startDate,
-                        returnDate: rental.returnDate,
-                        finalPrice: amountToPay
-                    }
+        const transactionData = {
+            amount: -amountToPay,
+            description: `Payment for rental #${rental._id}`,
+            type: 'payment',
+            reference: rental._id.toString(),
+            rental: rental._id, // Direct reference to the rental
+            status: 'completed',
+            metadata: {
+                rentalDetails: {
+                    startDate: rental.startDate,
+                    returnDate: rental.returnDate,
+                    finalPrice: amountToPay
                 }
-            }],
+            }
+        };
+        
+        // Set entity field dynamically
+        transactionData[auth.type] = auth.id;
+        
+        const transaction = await Transaction.create(
+            [transactionData],
             { session }
         );
         
@@ -563,7 +690,7 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
             data: {
                 rentalId: rental._id,
                 amount: amountToPay,
-                remainingCredits: updatedUser.credits,
+                remainingCredits: updatedEntity.credits,
                 rentalStatus: rental.status,
                 transaction: transaction[0]
             },
@@ -599,226 +726,14 @@ exports.getAllTransactions = asyncHandler(async (req, res) => {
         // Build query with filters
         let query = {};
         
-        // Filter by user
+        // Filter by entity
         if (req.query.userId) {
             query.user = req.query.userId;
         }
         
-        // Filter by type
-        if (req.query.type) {
-            if (Array.isArray(req.query.type)) {
-                query.type = { $in: req.query.type };
-            } else {
-                query.type = req.query.type;
-            }
+        if (req.query.providerId) {
+            query.provider = req.query.providerId;
         }
-        
-        // Filter by status
-        if (req.query.status) {
-            if (Array.isArray(req.query.status)) {
-                query.status = { $in: req.query.status };
-            } else {
-                query.status = req.query.status;
-            }
-        }
-        
-        // Filter by date range
-        if (req.query.startDate || req.query.endDate) {
-            query.transactionDate = {};
-            
-            if (req.query.startDate) {
-                query.transactionDate.$gte = new Date(req.query.startDate);
-            }
-            
-            if (req.query.endDate) {
-                // Add one day to include the end date fully
-                const endDate = new Date(req.query.endDate);
-                endDate.setDate(endDate.getDate() + 1);
-                query.transactionDate.$lt = endDate;
-            }
-        }
-        
-        // Filter by minimum amount
-        if (req.query.minAmount) {
-            query.amount = { $gte: parseFloat(req.query.minAmount) };
-        }
-        
-        // Filter by maximum amount
-        if (req.query.maxAmount) {
-            if (!query.amount) query.amount = {};
-            query.amount.$lte = parseFloat(req.query.maxAmount);
-        }
-        
-        // Filter by rental
-        if (req.query.rentalId) {
-            query.rental = req.query.rentalId;
-        }
-        
-        // Search by description
-        if (req.query.search) {
-            query.description = { $regex: req.query.search, $options: 'i' };
-        }
-        
-        // Count total documents
-        const total = await Transaction.countDocuments(query);
-        
-        // Prepare sorting
-        let sort = {};
-        if (req.query.sort) {
-            const sortFields = req.query.sort.split(',');
-            
-            sortFields.forEach(field => {
-                if (field.startsWith('-')) {
-                    sort[field.substring(1)] = -1;
-                } else {
-                    sort[field] = 1;
-                }
-            });
-        } else {
-            // Default sorting by transaction date (newest first)
-            sort = { transactionDate: -1 };
-        }
-        
-        // Execute query with pagination and population
-        const transactions = await Transaction.find(query)
-            .populate('user', 'name email')
-            .populate('performedBy', 'name email')
-            .populate('rental', 'startDate returnDate status')
-            .sort(sort)
-            .skip(startIndex)
-            .limit(limit);
-        
-        // Calculate pagination info
-        const pagination = {};
-        
-        if (startIndex > 0) {
-            pagination.prev = {
-                page: page - 1,
-                limit
-            };
-        }
-        
-        if (startIndex + limit < total) {
-            pagination.next = {
-                page: page + 1,
-                limit
-            };
-        }
-        
-        // Calculate summary statistics if requested
-        let summary = null;
-        if (req.query.summary === 'true') {
-            const deposits = await Transaction.aggregate([
-                { $match: { ...query, type: 'deposit' } },
-                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
-            ]);
-            
-            const payments = await Transaction.aggregate([
-                { $match: { ...query, type: 'payment' } },
-                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
-            ]);
-            
-            const refunds = await Transaction.aggregate([
-                { $match: { ...query, type: 'refund' } },
-                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
-            ]);
-            
-            const withdrawals = await Transaction.aggregate([
-                { $match: { ...query, type: 'withdrawal' } },
-                { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
-            ]);
-            
-            summary = {
-                deposits: {
-                    count: deposits[0]?.count || 0,
-                    total: deposits[0]?.total || 0
-                },
-                payments: {
-                    count: payments[0]?.count || 0,
-                    total: Math.abs(payments[0]?.total || 0)
-                },
-                refunds: {
-                    count: refunds[0]?.count || 0,
-                    total: refunds[0]?.total || 0
-                },
-                withdrawals: {
-                    count: withdrawals[0]?.count || 0,
-                    total: Math.abs(withdrawals[0]?.total || 0)
-                },
-                netFlow: (deposits[0]?.total || 0) + 
-                         (refunds[0]?.total || 0) + 
-                         (payments[0]?.total || 0) + 
-                         (withdrawals[0]?.total || 0)
-            };
-        }
-        
-        res.status(200).json({
-            success: true,
-            count: transactions.length,
-            total,
-            pagination,
-            summary,
-            data: transactions
-        });
-    } catch (error) {
-        console.error('Error fetching transactions:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-// @desc    Get transaction details
-// @route   GET /api/v1/credits/transactions/:id
-// @access  Private (Admin only)
-exports.getTransactionById = asyncHandler(async (req, res) => {
-    try {
-        const transaction = await Transaction.findById(req.params.id)
-            .populate('user', 'name email telephone_number')
-            .populate('performedBy', 'name email role')
-            .populate({
-                path: 'rental',
-                populate: {
-                    path: 'car',
-                    select: 'brand model license_plate'
-                }
-            });
-            
-        if (!transaction) {
-            return res.status(404).json({
-                success: false,
-                message: 'Transaction not found'
-            });
-        }
-        
-        res.status(200).json({
-            success: true,
-            data: transaction
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: error.message
-        });
-    }
-});
-
-/**
- * Get user's transaction history
- * @route   GET /api/v1/credits/history
- * @access  Private
- */
-
-exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
-    try {
-        // Get pagination parameters if provided, or use defaults
-        const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 20;
-        const startIndex = (page - 1) * limit;
-        
-        // Build query with filters
-        let query = { user: req.user.id };
         
         // Filter by type
         if (req.query.type) {
@@ -920,8 +835,8 @@ exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
             };
         }
         
-        // Get user's current credit balance
-        const user = await User.findById(req.user.id);
+        // Get entity's current credit balance
+        const entity = await auth.model.findById(auth.id);
         
         // Calculate summary statistics
         const deposits = await Transaction.aggregate([
@@ -965,7 +880,7 @@ exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
         
         // Add net flow (credits in - credits out)
         summary.netFlow = (summary.deposits.total + summary.refunds.total) - 
-                         (summary.payments.total + summary.withdrawals.total);
+                        (summary.payments.total + summary.withdrawals.total);
         
         res.status(200).json({
             success: true,
@@ -974,12 +889,233 @@ exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
             pagination,
             summary,
             data: {
-                currentCredits: user ? user.credits : 0,
+                currentCredits: entity ? (entity.credits || 0) : 0,
                 transactions
             }
         });
     } catch (error) {
-        console.error('Error fetching user transaction history:', error);
+        console.error('Error fetching transaction history:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// @desc    Get transaction details
+// @route   GET /api/v1/credits/transactions/:id
+// @access  Private (Admin only)
+exports.getTransactionById = asyncHandler(async (req, res) => {
+    try {
+        const transaction = await Transaction.findById(req.params.id)
+            .populate('user', 'name email telephone_number')
+            .populate('provider', 'name email telephone_number')
+            .populate('performedBy', 'name email role')
+            .populate({
+                path: 'rental',
+                populate: {
+                    path: 'car',
+                    select: 'brand model license_plate'
+                }
+            });
+            
+        if (!transaction) {
+            return res.status(404).json({
+                success: false,
+                message: 'Transaction not found'
+            });
+        }
+        
+        res.status(200).json({
+            success: true,
+            data: transaction
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+/**
+ * Get entity's transaction history
+ * @route   GET /api/v1/credits/history
+ * @access  Private
+ */
+exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
+    try {
+        const auth = getAuthEntity(req);
+        
+        // Get pagination parameters if provided, or use defaults
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 20;
+        const startIndex = (page - 1) * limit;
+        
+        // Build query with filters
+        let query = {};
+        query[auth.type] = auth.id; // Set entity field dynamically
+        
+        // Filter by type
+        if (req.query.type) {
+            if (Array.isArray(req.query.type)) {
+                query.type = { $in: req.query.type };
+            } else {
+                query.type = req.query.type;
+            }
+        }
+        
+        // Filter by status
+        if (req.query.status) {
+            if (Array.isArray(req.query.status)) {
+                query.status = { $in: req.query.status };
+            } else {
+                query.status = req.query.status;
+            }
+        }
+        
+        // Filter by date range
+        if (req.query.startDate || req.query.endDate) {
+            query.transactionDate = {};
+            
+            if (req.query.startDate) {
+                query.transactionDate.$gte = new Date(req.query.startDate);
+            }
+            
+            if (req.query.endDate) {
+                // Add one day to include the end date fully
+                const endDate = new Date(req.query.endDate);
+                endDate.setDate(endDate.getDate() + 1);
+                query.transactionDate.$lt = endDate;
+            }
+        }
+        
+        // Filter by reference (e.g., rental ID)
+        if (req.query.reference) {
+            query.reference = req.query.reference;
+        }
+
+        // Filter by rental ID
+        if (req.query.rentalId) {
+            query.rental = req.query.rentalId;
+        }
+
+        // Search in description
+        if (req.query.search) {
+            query.description = { $regex: req.query.search, $options: 'i' };
+        }
+        
+        // Count total documents matching the query
+        const total = await Transaction.countDocuments(query);
+        
+        // Prepare sorting (newest first by default)
+        let sort = { transactionDate: -1 };
+        
+        // Allow custom sorting if specified
+        if (req.query.sort) {
+            sort = {};
+            const sortParams = req.query.sort.split(',');
+            
+            sortParams.forEach(param => {
+                if (param.startsWith('-')) {
+                    sort[param.substring(1)] = -1;
+                } else {
+                    sort[param] = 1;
+                }
+            });
+        }
+        
+        // Execute query with pagination and joins
+        const transactions = await Transaction.find(query)
+            .populate({
+                path: 'rental',
+                select: 'startDate returnDate status finalPrice car',
+                populate: {
+                    path: 'car',
+                    select: 'brand model license_plate'
+                }
+            })
+            .sort(sort)
+            .skip(startIndex)
+            .limit(limit);
+        
+        // Calculate pagination info
+        const pagination = {};
+        
+        if (startIndex > 0) {
+            pagination.prev = {
+                page: page - 1,
+                limit
+            };
+        }
+        
+        if (startIndex + limit < total) {
+            pagination.next = {
+                page: page + 1,
+                limit
+            };
+        }
+        
+        // Get entity's current credit balance
+        const entity = await auth.model.findById(auth.id);
+        
+        // Calculate summary statistics
+        const deposits = await Transaction.aggregate([
+            { $match: { ...query, type: 'deposit' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const payments = await Transaction.aggregate([
+            { $match: { ...query, type: 'payment' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const refunds = await Transaction.aggregate([
+            { $match: { ...query, type: 'refund' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const withdrawals = await Transaction.aggregate([
+            { $match: { ...query, type: 'withdrawal' } },
+            { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } }
+        ]);
+        
+        const summary = {
+            deposits: {
+                count: deposits.length > 0 ? deposits[0].count : 0,
+                total: deposits.length > 0 ? deposits[0].total : 0
+            },
+            payments: {
+                count: payments.length > 0 ? payments[0].count : 0,
+                total: payments.length > 0 ? Math.abs(payments[0].total) : 0
+            },
+            refunds: {
+                count: refunds.length > 0 ? refunds[0].count : 0,
+                total: refunds.length > 0 ? refunds[0].total : 0
+            },
+            withdrawals: {
+                count: withdrawals.length > 0 ? withdrawals[0].count : 0,
+                total: withdrawals.length > 0 ? Math.abs(withdrawals[0].total) : 0
+            }
+        };
+        
+        // Add net flow (credits in - credits out)
+        summary.netFlow = (summary.deposits.total + summary.refunds.total) - 
+                        (summary.payments.total + summary.withdrawals.total);
+        
+        res.status(200).json({
+            success: true,
+            count: transactions.length,
+            total,
+            pagination,
+            summary,
+            data: {
+                currentCredits: entity ? (entity.credits || 0) : 0,
+                transactions
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching transaction history:', error);
         res.status(500).json({
             success: false,
             message: error.message

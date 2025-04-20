@@ -35,6 +35,12 @@ const CarProviderSchema = new mongoose.Schema({
     resetPasswordExpire: Date,
     verified: Boolean,
     completeRent: Number,
+    // Add credits field to Car_Provider model
+    credits: {
+        type: Number,
+        default: 0,
+        min: [0, 'Credits cannot be negative']
+    },
     review: {
         totalReviews: {
             type: Number,

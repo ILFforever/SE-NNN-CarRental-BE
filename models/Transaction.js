@@ -1,10 +1,16 @@
 const mongoose = require('mongoose');
 
 const TransactionSchema = new mongoose.Schema({
+    // User reference - optional, only set for user transactions
     user: {
         type: mongoose.Schema.ObjectId,
         ref: 'User',
-        required: true
+    },
+    // Provider reference - optional, only set for provider transactions
+    provider: {
+        type: mongoose.Schema.ObjectId,
+        ref: 'Car_Provider',
+        // Also optional
     },
     amount: {
         type: Number,
@@ -55,8 +61,17 @@ const TransactionSchema = new mongoose.Schema({
     timestamps: true // Automatically add createdAt and updatedAt fields
 });
 
+// Custom validation to ensure either user or provider is provided
+TransactionSchema.pre('validate', function(next) {
+    if (!this.user && !this.provider) {
+        this.invalidate('user', 'Either user or provider must be provided');
+    }
+    next();
+});
+
 // Indexes for faster queries
 TransactionSchema.index({ user: 1, transactionDate: -1 });
+TransactionSchema.index({ provider: 1, transactionDate: -1 });
 TransactionSchema.index({ type: 1 });
 TransactionSchema.index({ status: 1 });
 TransactionSchema.index({ rental: 1 });
