@@ -315,3 +315,70 @@ exports.removeFavoriteCar = async (req, res, next) => {
     }
 };
 
+
+// Addition to controllers/auth.js to add update-profile endpoint
+
+// @desc    Update user profile
+// @route   PUT /api/v1/auth/update-profile
+// @access  Private
+exports.updateUserProfile = async (req, res, next) => {
+    try {
+        const { name, telephone_number } = req.body;
+
+        // Validate required fields
+        if (!name || !telephone_number) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name and telephone number are required'
+            });
+        }
+
+        // Validate telephone number format (XXX-XXXXXXX)
+        const phoneRegex = /^\d{3}-\d{7}$/;
+        if (!phoneRegex.test(telephone_number)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Telephone number must be in the format XXX-XXXXXXX'
+            });
+        }
+
+        // Get the user
+        const user = await User.findById(req.user.id);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Update user fields
+        user.name = name;
+        user.telephone_number = telephone_number;
+
+        // Save the updated user
+        await user.save();
+
+        // Return the updated user (excluding sensitive information)
+        res.status(200).json({
+            success: true,
+            message: 'Profile updated successfully',
+            data: {
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                telephone_number: user.telephone_number,
+                role: user.role,
+                tier: user.tier,
+                total_spend: user.total_spend,
+                createdAt: user.createdAt
+            }
+        });
+    } catch (err) {
+        console.error('Error updating user profile:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
+    }
+};
