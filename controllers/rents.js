@@ -25,6 +25,7 @@ exports.getUserRents = asyncHandler(async (req, res, next) => {
   });
 });
 
+
 // @desc    Get all rents (for admins)
 // @route   GET /api/v1/rents/all
 // @access  Private/Admin
@@ -33,23 +34,146 @@ exports.getAllRents = asyncHandler(async (req, res, next) => {
 
   // Filter by car ID if provided
   if (req.params.carId) {
-    query = Rent.find({ car: req.params.carId }).populate({
+    query = Rent.find({ car: req.params.carId });
+  } else {
+    // Get all rents
+    query = Rent.find();
+  }
+
+  // Add relationships
+  query = query
+    .populate({
       path: "car",
       select:
         "license_plate brand type model color manufactureDate available dailyRate tier provider_id",
+    })
+    .populate({
+      path: "user",
+      select: "name email telephone_number role",
     });
+    
+  // Apply sorting - prioritize active/pending/unpaid rentals, then newest first
+  // If custom sort is provided, use that instead
+  if (req.query.sort) {
+    const sortBy = req.query.sort.split(",").join(" ");
+    query = query.sort(sortBy);
   } else {
-    // Get all rents
-    query = Rent.find()
-      .populate({
-        path: "car",
-        select:
-          "license_plate brand type model color manufactureDate available dailyRate tier provider_id",
-      })
-      .populate({
-        path: "user",
-        select: "name email telephone_number role",
+    // Use aggregation pipeline for custom sorting
+    const aggregatePipeline = [
+      // Match by car ID if provided
+      ...(req.params.carId ? [{ $match: { car: mongoose.Types.ObjectId(req.params.carId) } }] : []),
+      
+      // Add a field for status priority
+      {
+        $addFields: {
+          statusPriority: {
+            $switch: {
+              branches: [
+                { case: { $in: ["$status", ["active", "pending", "unpaid"]] }, then: 1 },
+                { case: { $eq: ["$status", "completed"] }, then: 2 },
+                { case: { $eq: ["$status", "cancelled"] }, then: 3 },
+              ],
+              default: 4
+            }
+          }
+        }
+      },
+      
+      // Sort by status priority, then by newest
+      { $sort: { statusPriority: 1, createdAt: -1 } },
+      
+      // Lookup to populate car data
+      {
+        $lookup: {
+          from: "cars",
+          localField: "car",
+          foreignField: "_id",
+          as: "carDetails"
+        }
+      },
+      { $unwind: { path: "$carDetails", preserveNullAndEmptyArrays: true } },
+      
+      // Lookup to populate user data
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "userDetails"
+        }
+      },
+      { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
+      
+      // Project the final structure
+      {
+        $project: {
+          _id: 1,
+          startDate: 1,
+          returnDate: 1,
+          actualReturnDate: 1,
+          status: 1,
+          price: 1,
+          servicePrice: 1,
+          discountAmount: 1,
+          finalPrice: 1,
+          additionalCharges: 1,
+          notes: 1,
+          service: 1,
+          createdAt: 1,
+          isRated: 1,
+          car: {
+            _id: "$carDetails._id",
+            license_plate: "$carDetails.license_plate",
+            brand: "$carDetails.brand",
+            model: "$carDetails.model",
+            type: "$carDetails.type",
+            color: "$carDetails.color",
+            manufactureDrage: "$carDetails.manufactureDate",
+            available: "$carDetails.available",
+            dailyRate: "$carDetails.dailyRate",
+            tier: "$carDetails.tier",
+            provider_id: "$carDetails.provider_id"
+          },
+          user: {
+            _id: "$userDetails._id",
+            name: "$userDetails.name", 
+            email: "$userDetails.email",
+            telephone_number: "$userDetails.telephone_number",
+            role: "$userDetails.role"
+          }
+        }
+      }
+    ];
+    
+    try {
+      const sortedRents = await Rent.aggregate(aggregatePipeline);
+      
+      return res.status(200).json({
+        success: true,
+        count: sortedRents.length,
+        data: sortedRents,
       });
+    } catch (err) {
+      console.error(`Error with aggregation: ${err.message}`);
+      // Fallback to regular query with simpler sorting if aggregation fails
+      query = query.sort({
+        // Custom sort by status priority
+        status: {
+          $cond: {
+            if: { $in: ["$status", ["active", "pending", "unpaid"]] },
+            then: 1,
+            else: {
+              $cond: {
+                if: { $eq: ["$status", "completed"] },
+                then: 2,
+                else: 3 // cancelled
+              }
+            }
+          }
+        },
+        createdAt: -1 // Then by newest first
+      });
+    }
   }
 
   const rents = await query;
@@ -197,12 +321,31 @@ exports.getProviderRents = asyncHandler(async (req, res, next) => {
       });
     }
 
-    // Apply sorting
+    // Apply custom sorting based on status priority and creation date
+    // If user provides a sort parameter, use that instead
     if (req.query.sort) {
       const sortBy = req.query.sort.split(",").join(" ");
       query = query.sort(sortBy);
     } else {
-      query = query.sort("-createdAt"); // Default: newest first
+      // Default sorting: status priority (active/pending/unpaid first, then completed/cancelled), then newest first
+      query = query.sort({
+        // Custom sort by status priority - group active, pending, and unpaid together
+        // Using a custom field for sorting that doesn't exist on the model
+        _statusPriority: {
+          $cond: {
+            if: { $in: ["$status", ["active", "pending", "unpaid"]] },
+            then: 1,
+            else: {
+              $cond: {
+                if: { $eq: ["$status", "completed"] },
+                then: 2,
+                else: 3 // cancelled or other statuses
+              }
+            }
+          }
+        },
+        createdAt: -1 // Then by newest first
+      });
     }
 
     // Pagination
@@ -228,7 +371,131 @@ exports.getProviderRents = asyncHandler(async (req, res, next) => {
     // Execute query
     const rents = await query;
 
-    // Prepare pagination info
+    // Using aggregation for proper sorting
+    if (!req.query.sort) {
+      // Use aggregation framework for custom sorting if no explicit sort is provided
+      const aggregatePipeline = [
+        // Match the same documents from our query
+        { $match: { car: { $in: carIds } } },
+        
+        // Add additional match stages for filters
+        ...(req.query.status ? [{ $match: { status: req.query.status } }] : []),
+        ...(req.query.startDate ? [{ $match: { startDate: { $gte: new Date(req.query.startDate) } } }] : []),
+        ...(req.query.endDate ? [{ $match: { returnDate: { $lte: new Date(req.query.endDate) } } }] : []),
+        
+        // Add a field for status priority
+        // Group active, pending, and unpaid together as priority 1
+        {
+          $addFields: {
+            statusPriority: {
+              $switch: {
+                branches: [
+                  { case: { $in: ["$status", ["active", "pending", "unpaid"]] }, then: 1 },
+                  { case: { $eq: ["$status", "completed"] }, then: 2 },
+                  { case: { $eq: ["$status", "cancelled"] }, then: 3 },
+                ],
+                default: 4
+              }
+            }
+          }
+        },
+        
+        // Sort by status priority, then by newest
+        { $sort: { statusPriority: 1, createdAt: -1 } },
+        
+        // Apply pagination
+        { $skip: startIndex },
+        { $limit: limit },
+        
+        // Lookup to populate car data
+        {
+          $lookup: {
+            from: "cars",
+            localField: "car",
+            foreignField: "_id",
+            as: "carDetails"
+          }
+        },
+        { $unwind: { path: "$carDetails", preserveNullAndEmptyArrays: true } },
+        
+        // Lookup to populate user data
+        {
+          $lookup: {
+            from: "users",
+            localField: "user",
+            foreignField: "_id",
+            as: "userDetails"
+          }
+        },
+        { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
+        
+        // Project the final structure to match the regular query result
+        {
+          $project: {
+            _id: 1,
+            startDate: 1,
+            returnDate: 1,
+            actualReturnDate: 1,
+            status: 1,
+            price: 1,
+            servicePrice: 1,
+            discountAmount: 1,
+            finalPrice: 1,
+            additionalCharges: 1,
+            notes: 1,
+            service: 1,
+            createdAt: 1,
+            isRated: 1,
+            car: {
+              _id: "$carDetails._id",
+              license_plate: "$carDetails.license_plate",
+              brand: "$carDetails.brand",
+              model: "$carDetails.model",
+              type: "$carDetails.type",
+              color: "$carDetails.color",
+              dailyRate: "$carDetails.dailyRate",
+              tier: "$carDetails.tier"
+            },
+            user: {
+              _id: "$userDetails._id",
+              name: "$userDetails.name", 
+              email: "$userDetails.email",
+              telephone_number: "$userDetails.telephone_number"
+            }
+          }
+        }
+      ];
+      
+      const sortedRents = await Rent.aggregate(aggregatePipeline);
+      
+      // Prepare pagination info
+      const pagination = {};
+
+      if (endIndex < total) {
+        pagination.next = {
+          page: page + 1,
+          limit,
+        };
+      }
+
+      if (startIndex > 0) {
+        pagination.prev = {
+          page: page - 1,
+          limit,
+        };
+      }
+
+      // Send response with the aggregation results
+      return res.status(200).json({
+        success: true,
+        count: sortedRents.length,
+        pagination,
+        totalCount: total,
+        data: sortedRents,
+      });
+    }
+
+    // Prepare pagination info for the non-aggregation case
     const pagination = {};
 
     if (endIndex < total) {
@@ -245,7 +512,7 @@ exports.getProviderRents = asyncHandler(async (req, res, next) => {
       };
     }
 
-    // Send response
+    // Send response with the regular query results
     res.status(200).json({
       success: true,
       count: rents.length,
