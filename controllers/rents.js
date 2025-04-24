@@ -68,44 +68,75 @@ exports.getUserRents = asyncHandler(async (req, res, next) => {
 });
 
 
-// @desc    Get all rents (for admins)
-// @route   GET /api/v1/rents/all
-// @access  Private/Admin
-exports.getAllRents = asyncHandler(async (req, res, next) => {
-  let query;
+// @desc    Get rents for admin or provider
+// @route   GET /api/v1/rents
+// @access  Private/Admin or Private/Provider
+exports.getAllRents = asyncHandler(async (req, res) => {
+  const isAdmin = !!req.user?.role && req.user.role === 'admin';
+  const isProvider = !!req.provider;
 
-  // Filter by car ID if provided
-  if (req.params.carId) {
-    query = Rent.find({ car: req.params.carId });
-  } else {
-    // Get all rents
-    query = Rent.find();
+  if (!isAdmin && !isProvider) {
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized access",
+    });
   }
 
-  // Add relationships
-  query = query
-    .populate({
-      path: "car",
-      select:
-        "license_plate brand type model color manufactureDate available dailyRate tier provider_id",
-    })
-    .populate({
-      path: "user",
-      select: "name email telephone_number role",
-    });
-    
-  // Apply sorting - prioritize active/pending/unpaid rentals, then newest first
-  // If custom sort is provided, use that instead
-  if (req.query.sort) {
-    const sortBy = req.query.sort.split(",").join(" ");
-    query = query.sort(sortBy);
-  } else {
-    // Use aggregation pipeline for custom sorting
-    const aggregatePipeline = [
-      // Match by car ID if provided
-      ...(req.params.carId ? [{ $match: { car: mongoose.Types.ObjectId(req.params.carId) } }] : []),
-      
-      // Add a field for status priority
+  try {
+    const page = parseInt(req.query.page, 10) || 1;
+    const limit = parseInt(req.query.limit, 10) || 25;
+    const skip = (page - 1) * limit;
+
+    let matchFilters = {};
+
+    // If provider, filter to only their cars
+    if (isProvider) {
+      const providerId = req.provider.id;
+      const providerCars = await Car.find({ provider_id: providerId });
+
+      if (!providerCars.length) {
+        return res.status(200).json({
+          success: true,
+          count: 0,
+          totalCount: 0,
+          pagination: {},
+          data: []
+        });
+      }
+
+      const carIds = providerCars.map(car => new mongoose.Types.ObjectId(car._id));
+      matchFilters.car = { $in: carIds };
+    }
+
+    // Status filter
+    if (req.query.status) {
+      matchFilters.status = req.query.status;
+    }
+
+    // Date filters
+    const dateConditions = [];
+    if (req.query.startDate) {
+      dateConditions.push({ startDate: { $gte: new Date(req.query.startDate) } });
+    }
+    if (req.query.endDate) {
+      dateConditions.push({ returnDate: { $lte: new Date(req.query.endDate) } });
+    }
+    if (dateConditions.length) {
+      matchFilters.$and = dateConditions;
+    }
+
+    // Optional sorting
+    let sort = { createdAt: -1 };
+    if (req.query.sort) {
+      const sortField = req.query.sort.startsWith('-')
+        ? { [req.query.sort.slice(1)]: -1 }
+        : { [req.query.sort]: 1 };
+      sort = sortField;
+    }
+
+    // Base aggregation pipeline
+    const pipeline = [
+      { $match: matchFilters },
       {
         $addFields: {
           statusPriority: {
@@ -113,18 +144,13 @@ exports.getAllRents = asyncHandler(async (req, res, next) => {
               branches: [
                 { case: { $in: ["$status", ["active", "pending", "unpaid"]] }, then: 1 },
                 { case: { $eq: ["$status", "completed"] }, then: 2 },
-                { case: { $eq: ["$status", "cancelled"] }, then: 3 },
+                { case: { $eq: ["$status", "cancelled"] }, then: 3 }
               ],
               default: 4
             }
           }
         }
       },
-      
-      // Sort by status priority, then by newest
-      { $sort: { statusPriority: 1, createdAt: -1 } },
-      
-      // Lookup to populate car data
       {
         $lookup: {
           from: "cars",
@@ -134,8 +160,6 @@ exports.getAllRents = asyncHandler(async (req, res, next) => {
         }
       },
       { $unwind: { path: "$carDetails", preserveNullAndEmptyArrays: true } },
-      
-      // Lookup to populate user data
       {
         $lookup: {
           from: "users",
@@ -145,8 +169,9 @@ exports.getAllRents = asyncHandler(async (req, res, next) => {
         }
       },
       { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
-      
-      // Project the final structure
+      { $sort: sort },
+      { $skip: skip },
+      { $limit: limit },
       {
         $project: {
           _id: 1,
@@ -158,74 +183,64 @@ exports.getAllRents = asyncHandler(async (req, res, next) => {
           servicePrice: 1,
           discountAmount: 1,
           finalPrice: 1,
-          additionalCharges: 1,
-          notes: 1,
-          service: 1,
           createdAt: 1,
           isRated: 1,
+          service: 1,
+          notes: 1,
+          additionalCharges: 1,
           car: {
             _id: "$carDetails._id",
             license_plate: "$carDetails.license_plate",
             brand: "$carDetails.brand",
+            provider_id: "$carDetails.provider_id",
             model: "$carDetails.model",
             type: "$carDetails.type",
             color: "$carDetails.color",
-            manufactureDrage: "$carDetails.manufactureDate",
+            manufactureDate: "$carDetails.manufactureDate",
             available: "$carDetails.available",
             dailyRate: "$carDetails.dailyRate",
             tier: "$carDetails.tier",
-            provider_id: "$carDetails.provider_id"
+            images: "$carDetails.images"
           },
           user: {
             _id: "$userDetails._id",
-            name: "$userDetails.name", 
+            name: "$userDetails.name",
             email: "$userDetails.email",
-            telephone_number: "$userDetails.telephone_number",
-            role: "$userDetails.role"
+            telephone_number: "$userDetails.telephone_number"
           }
         }
       }
     ];
-    
-    try {
-      const sortedRents = await Rent.aggregate(aggregatePipeline);
-      
-      return res.status(200).json({
-        success: true,
-        count: sortedRents.length,
-        data: sortedRents,
-      });
-    } catch (err) {
-      console.error(`Error with aggregation: ${err.message}`);
-      // Fallback to regular query with simpler sorting if aggregation fails
-      query = query.sort({
-        // Custom sort by status priority
-        status: {
-          $cond: {
-            if: { $in: ["$status", ["active", "pending", "unpaid"]] },
-            then: 1,
-            else: {
-              $cond: {
-                if: { $eq: ["$status", "completed"] },
-                then: 2,
-                else: 3 // cancelled
-              }
-            }
-          }
-        },
-        createdAt: -1 // Then by newest first
-      });
+
+    const rents = await Rent.aggregate(pipeline);
+    const totalCount = await Rent.countDocuments(matchFilters);
+
+    const pagination = {};
+    if (skip + limit < totalCount) {
+      pagination.next = {
+        page: page + 1,
+        limit,
+      };
     }
+
+    res.status(200).json({
+      success: true,
+      count: rents.length,
+      totalCount,
+      pagination,
+      data: rents
+    });
+
+  } catch (err) {
+    console.error(`Error fetching rentals: ${err.message}`);
+    console.error(err.stack);
+    res.status(500).json({
+      success: false,
+      message: "Server error while fetching rentals"
+    });
   }
-
-  const rents = await query;
-
-  res.status(200).json({
-    success: true,
-    count: rents.length,
-    data: rents,
-  });
 });
+
 
 // @desc    Get single rent
 // @route   GET /api/v1/rents/:id

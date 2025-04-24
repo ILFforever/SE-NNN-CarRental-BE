@@ -37,7 +37,7 @@ router
 // Provider-only route - get rentals for provider's cars
 router
     .route('/provider')
-    .get(getProviderRents);
+    .get(getAllRents);
 
 // Individual rent routes
 router
