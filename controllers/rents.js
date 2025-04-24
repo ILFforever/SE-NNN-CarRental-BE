@@ -10,11 +10,13 @@ const asyncHandler = require("express-async-handler");
 // @access  Private
 exports.getUserRents = asyncHandler(async (req, res, next) => {
   // Only return rents belonging to the logged-in user
-  const query = Rent.find({ user: req.user.id }).populate({
-    path: "car",
-    select:
-      "license_plate brand type model color manufactureDate available dailyRate tier provider_id",
-  });
+  const query = Rent.find({ user: req.user.id })
+    .populate({
+      path: "car",
+      select:
+        "license_plate brand type model color manufactureDate available dailyRate tier provider_id",
+    })
+    .sort({ createdAt: -1 }); // Sort by creation date in descending order (newest first)
 
   const rents = await query;
 
