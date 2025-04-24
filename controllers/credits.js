@@ -776,7 +776,7 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
         }
         
         // Check authorization based on entity type
-        if (auth.type === 'user') {
+        if (auth.type === 'user' || auth.type === 'admin') {
             // Check if the rental belongs to the current user
             if (rental.user.toString() !== auth.id) {
                 await session.abortTransaction();
@@ -786,16 +786,11 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
                 });
             }
         } else if (auth.type === 'provider') {
-            // For providers, check if they own the car in the rental
-            const car = await Car.findById(rental.car).session(session);
             
-            if (!car || car.provider_id.toString() !== auth.id) {
-                await session.abortTransaction();
                 return res.status(403).json({
                     success: false,
-                    message: 'You are not authorized to pay for this rental'
+                    message: 'You are not authorized'
                 });
-            }
         }
         
         // Check if the rental is in 'unpaid' status
@@ -854,7 +849,6 @@ exports.payRentalWithCredits = asyncHandler(async (req, res) => {
             description: `Payment for rental #${rental._id}`,
             type: 'payment',
             reference: rental._id.toString(),
-            rental: rental._id, // Direct reference to the rental
             status: 'completed',
             metadata: {
                 rentalDetails: {
