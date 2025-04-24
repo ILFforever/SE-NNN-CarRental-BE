@@ -401,7 +401,8 @@ exports.updateCarImageOrder = async (req, res, next) => {
 exports.checkCarAvailability = async (req, res, next) => {
   try {
     const { carId } = req.params;
-    const { startDate, returnDate } = req.query;
+    const { startDate, returnDate, startTime, returnTime } = req.query;
+    const bufferHours = 3; // Set buffer time between bookings (3 hours)
 
     if (!carId || !startDate || !returnDate) {
       return res.status(400).json({
@@ -418,45 +419,51 @@ exports.checkCarAvailability = async (req, res, next) => {
       });
     }
 
-    const start = new Date(startDate);
-    const end = new Date(returnDate);
+    // Create datetime objects by combining date and time
+    const start = startTime 
+      ? new Date(`${startDate}T${startTime}`) 
+      : new Date(startDate);
+    
+    const end = returnTime 
+      ? new Date(`${returnDate}T${returnTime}`) 
+      : new Date(returnDate);
 
     if (start > end) {
       return res.status(400).json({
         success: false,
-        message: "Return date must be after start date",
+        message: "Return date/time must be after start date/time",
       });
     }
 
-    const conflictingRentals = await Rent.find({
+    // Create buffer times for checking
+    const startWithBuffer = new Date(start);
+    startWithBuffer.setHours(startWithBuffer.getHours() - bufferHours);
+    
+    const endWithBuffer = new Date(end);
+    endWithBuffer.setHours(endWithBuffer.getHours() + bufferHours);
+
+    // Find all rentals for this car with active/pending status
+    const existingRentals = await Rent.find({
       car: carId,
-      status: { $in: ["active", "pending"] },
-      $or: [
-        // กรณี 1: วันเริ่มต้นจองใหม่อยู่ในช่วงการจองที่มีอยู่
-        {
-          startDate: { $lte: start },
-          returnDate: { $gt: start },
-        },
-        // กรณี 2: วันสิ้นสุดจองใหม่อยู่ในช่วงการจองที่มีอยู่
-        {
-          startDate: { $lt: end },
-          returnDate: { $gte: end },
-        },
-        // กรณี 3: การจองใหม่ครอบคลุมทั้งช่วงการจองที่มีอยู่
-        {
-          startDate: { $gte: start },
-          returnDate: { $lte: end },
-        },
-        // กรณี 4: การจองใหม่ครอบคลุมการจองที่มีอยู่ทั้งหมด
-        {
-          startDate: { $lte: start },
-          returnDate: { $gte: end }
-        }
-      ],
+      status: { $in: ["active", "pending"] }
+    });
+
+    // Check for conflicts with buffer time consideration
+    const conflictingRentals = existingRentals.filter(rental => {
+      const rentalStart = new Date(rental.startDate);
+      const rentalEnd = new Date(rental.returnDate);
+      
+      // Check if there's at least bufferHours between rentals
+      const enoughBufferAfter = start >= new Date(rentalEnd.getTime() + bufferHours * 60 * 60 * 1000);
+      const enoughBufferBefore = end <= new Date(rentalStart.getTime() - bufferHours * 60 * 60 * 1000);
+      
+      // If it has enough buffer on either side, it's not conflicting
+      return !(enoughBufferAfter || enoughBufferBefore);
     });
 
     const isAvailable = conflictingRentals.length === 0 && car.available;
 
+    // Convert conflicts to a more frontend-friendly format
     const conflicts = conflictingRentals.map((rental) => ({
       id: rental._id,
       startDate: rental.startDate,
