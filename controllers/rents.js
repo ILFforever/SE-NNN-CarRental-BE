@@ -317,201 +317,175 @@ exports.getRent = asyncHandler(async (req, res, next) => {
 // @route   GET /api/v1/rents/provider
 // @access  Private/Provider
 exports.getProviderRents = asyncHandler(async (req, res) => {
-  // Only allow car providers to access this route
-  if (!req.provider) {
-      return res.status(403).json({
-          success: false,
-          message: "Only car providers can access this route",
-      });
-  }
+    // Only allow car providers to access this route
+    if (!req.provider) {
+        return res.status(403).json({
+            success: false,
+            message: "Only car providers can access this route",
+        });
+    }
 
-  const providerId = req.provider.id;
+    const providerId = req.provider.id;
 
-  try {
-      // First, find all cars belonging to this provider
-      const providerCars = await Car.find({ provider_id: providerId });
+    try {
+        // First, find all cars belonging to this provider
+        const providerCars = await Car.find({ provider_id: providerId });
 
-      if (!providerCars || providerCars.length === 0) {
-          return res.status(200).json({
-              success: true,
-              count: 0,
-              data: [],
-          });
-      }
+        if (!providerCars || providerCars.length === 0) {
+            return res.status(200).json({
+                success: true,
+                count: 0,
+                totalCount: 0,
+                pagination: {},
+                data: [],
+            });
+        }
 
-      // Get car IDs correctly using new ObjectId()
-      const carIds = providerCars.map((car) => new mongoose.Types.ObjectId(car._id));
+        // Get car IDs correctly using new ObjectId()
+        const carIds = providerCars.map((car) => new mongoose.Types.ObjectId(car._id));
 
-      // Pagination parameters
-      const page = parseInt(req.query.page, 10) || 1;
-      const limit = parseInt(req.query.limit, 10) || 25;
-      const startIndex = (page - 1) * limit;
+        // Pagination parameters
+        const page = parseInt(req.query.page, 10) || 1;
+        const limit = parseInt(req.query.limit, 10) || 10;
+        const startIndex = (page - 1) * limit;
 
-      // Build base query parameters from request
-      let matchStage = { car: { $in: carIds } };
+        // Build base query parameters from request
+        let matchStage = { car: { $in: carIds } };
 
-      // Apply status filter if provided
-      if (req.query.status) {
-          matchStage.status = req.query.status;
-      }
+        // Apply status filter if provided
+        if (req.query.status) {
+            matchStage.status = req.query.status;
+        }
 
-      // Apply date range filters
-      if (req.query.startDate || req.query.endDate) {
-          matchStage.$or = [];
+        // Apply date range filters
+        if (req.query.startDate || req.query.endDate) {
+            matchStage.$or = [];
 
-          if (req.query.startDate) {
-              matchStage.$or.push({
-                  startDate: { $gte: new Date(req.query.startDate) }
-              });
-          }
+            if (req.query.startDate) {
+                matchStage.$or.push({
+                    startDate: { $gte: new Date(req.query.startDate) }
+                });
+            }
 
-          if (req.query.endDate) {
-              matchStage.$or.push({
-                  returnDate: { $lte: new Date(req.query.endDate) }
-              });
-          }
-      }
+            if (req.query.endDate) {
+                matchStage.$or.push({
+                    returnDate: { $lte: new Date(req.query.endDate) }
+                });
+            }
+        }
 
-      // Build aggregation pipeline
-      const aggregatePipeline = [
-          // Initial match stage to filter for provider's cars
-          { $match: matchStage },
+        // Build aggregation pipeline
+        const aggregatePipeline = [
+            // Initial match stage to filter for provider's cars
+            { $match: matchStage },
 
-          // Add a field for status priority
-          {
-              $addFields: {
-                  statusPriority: {
-                      $switch: {
-                          branches: [
-                              { case: { $in: ["$status", ["active", "pending", "unpaid"]] }, then: 1 },
-                              { case: { $eq: ["$status", "completed"] }, then: 2 },
-                              { case: { $eq: ["$status", "cancelled"] }, then: 3 },
-                          ],
-                          default: 4
-                      }
-                  }
-              }
-          },
+            // Add a field for status priority
+            {
+                $addFields: {
+                    statusPriority: {
+                        $switch: {
+                            branches: [
+                                { case: { $in: ["$status", ["active", "pending", "unpaid"]] }, then: 1 },
+                                { case: { $eq: ["$status", "completed"] }, then: 2 },
+                                { case: { $eq: ["$status", "cancelled"] }, then: 3 },
+                            ],
+                            default: 4
+                        }
+                    }
+                }
+            },
 
-          // Lookup to populate user details
-          {
-              $lookup: {
-                  from: "users",
-                  localField: "user",
-                  foreignField: "_id",
-                  as: "userDetails"
-              }
-          },
-          { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
+            // Lookup to populate car details fully
+            {
+                $lookup: {
+                    from: "cars",
+                    localField: "car",
+                    foreignField: "_id",
+                    as: "carDetails"
+                }
+            },
+            { $unwind: { path: "$carDetails", preserveNullAndEmptyArrays: true } },
 
-          // Lookup to populate car details
-          {
-              $lookup: {
-                  from: "cars",
-                  localField: "car",
-                  foreignField: "_id",
-                  as: "carDetails"
-              }
-          },
-          { $unwind: { path: "$carDetails", preserveNullAndEmptyArrays: true } },
+            // Custom sorting
+            { 
+                $sort: { 
+                    statusPriority: 1, 
+                    createdAt: -1 
+                } 
+            },
 
-          // Custom sorting
-          { 
-              $sort: { 
-                  statusPriority: 1, 
-                  createdAt: -1 
-              } 
-          },
+            // Pagination stages
+            { $skip: startIndex },
+            { $limit: limit },
 
-          // Pagination stages
-          { $skip: startIndex },
-          { $limit: limit },
+            // Project final structure to match exact format
+            {
+                $project: {
+                    _id: 1,
+                    startDate: 1,
+                    returnDate: 1,
+                    actualReturnDate: 1,
+                    status: 1,
+                    price: 1,
+                    servicePrice: 1,
+                    discountAmount: 1,
+                    finalPrice: 1,
+                    user: 1,
+                    service: 1,
+                    isRated: 1,
+                    createdAt: 1,
+                    __v: 1,
+                    notes: 1,
+                    additionalCharges: 1,
+                    car: {
+                        _id: "$carDetails._id",
+                        license_plate: "$carDetails.license_plate",
+                        brand: "$carDetails.brand",
+                        provider_id: "$carDetails.provider_id",
+                        model: "$carDetails.model",
+                        type: "$carDetails.type",
+                        color: "$carDetails.color",
+                        manufactureDate: "$carDetails.manufactureDate",
+                        available: "$carDetails.available",
+                        dailyRate: "$carDetails.dailyRate",
+                        tier: "$carDetails.tier",
+                        images: "$carDetails.images",
+                        id: "$carDetails._id"
+                    }
+                }
+            }
+        ];
 
-          // Project final structure
-          {
-              $project: {
-                  _id: 1,
-                  startDate: 1,
-                  returnDate: 1,
-                  actualReturnDate: 1,
-                  status: 1,
-                  price: 1,
-                  servicePrice: 1,
-                  finalPrice: 1,
-                  discountAmount: 1,
-                  createdAt: 1,
-                  user: {
-                      _id: "$userDetails._id",
-                      name: "$userDetails.name",
-                      email: "$userDetails.email",
-                      telephone_number: "$userDetails.telephone_number"
-                  },
-                  car: {
-                      _id: "$carDetails._id",
-                      brand: "$carDetails.brand",
-                      model: "$carDetails.model",
-                      license_plate: "$carDetails.license_plate"
-                  }
-              }
-          }
-      ];
+        // Execute the aggregation pipeline
+        const rents = await Rent.aggregate(aggregatePipeline);
 
-      // Optional: Allow custom sorting if specified
-      if (req.query.sort) {
-          const sortParams = req.query.sort.split(',');
-          const customSort = {};
-          sortParams.forEach(param => {
-              if (param.startsWith('-')) {
-                  customSort[param.substring(1)] = -1;
-              } else {
-                  customSort[param] = 1;
-              }
-          });
-          
-          // Replace the default sorting stage
-          aggregatePipeline.splice(
-              aggregatePipeline.findIndex(stage => stage.$sort), 
-              1, 
-              { $sort: customSort }
-          );
-      }
+        // Count total matching documents for pagination
+        const totalCount = await Rent.countDocuments(matchStage);
 
-      // Execute the aggregation pipeline
-      const rents = await Rent.aggregate(aggregatePipeline);
+        // Prepare pagination info
+        const pagination = {};
+        if (startIndex + limit < totalCount) {
+            pagination.next = {
+                page: page + 1,
+                limit,
+            };
+        }
 
-      // Count total matching documents for pagination
-      const totalCount = await Rent.countDocuments(matchStage);
-
-      // Prepare pagination info
-      const pagination = {};
-      if (startIndex + limit < totalCount) {
-          pagination.next = {
-              page: page + 1,
-              limit,
-          };
-      }
-      if (startIndex > 0) {
-          pagination.prev = {
-              page: page - 1,
-              limit,
-          };
-      }
-
-      res.status(200).json({
-          success: true,
-          count: rents.length,
-          totalCount,
-          pagination,
-          data: rents,
-      });
-  } catch (err) {
-      console.error(`Error fetching provider rentals: ${err.message}`);
-      console.error(err.stack);  // Added to provide more detailed error information
-      res.status(500).json({
-          success: false,
-          message: "Server error while fetching provider rentals",
-      });
-  }
+        res.status(200).json({
+            success: true,
+            count: rents.length,
+            totalCount,
+            pagination,
+            data: rents,
+        });
+    } catch (err) {
+        console.error(`Error fetching provider rentals: ${err.message}`);
+        console.error(err.stack);  // Added to provide more detailed error information
+        res.status(500).json({
+            success: false,
+            message: "Server error while fetching provider rentals",
+        });
+    }
 });
 
 // @desc    Add rent
