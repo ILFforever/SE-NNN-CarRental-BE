@@ -9,20 +9,59 @@ const asyncHandler = require("express-async-handler");
 // @route   GET /api/v1/rents
 // @access  Private
 exports.getUserRents = asyncHandler(async (req, res, next) => {
-  // Only return rents belonging to the logged-in user
-  const query = Rent.find({ user: req.user.id })
-    .populate({
-      path: "car",
-      select:
-        "license_plate brand type model color manufactureDate available dailyRate tier provider_id",
-    })
-    .sort({ createdAt: -1 }); // Sort by creation date in descending order (newest first)
+  // Parse pagination parameters from query string
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 10;
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
 
+  // Build query to find only this user's rentals
+  const query = Rent.find({ user: req.user.id });
+
+  // Apply sorting - newest first
+  query.sort({ createdAt: -1 });
+
+  // Count total documents for pagination info
+  const total = await Rent.countDocuments({ user: req.user.id });
+
+  // Apply pagination
+  query.skip(startIndex).limit(limit);
+
+  // Add relationships
+  query.populate({
+    path: "car",
+    select:
+      "license_plate brand type model color manufactureDate available dailyRate tier provider_id images",
+  });
+
+  // Execute query
   const rents = await query;
 
+  // Prepare pagination info
+  const pagination = {};
+
+  // Add next page info if available
+  if (endIndex < total) {
+    pagination.next = {
+      page: page + 1,
+      limit
+    };
+  }
+
+  // Add previous page info if available
+  if (startIndex > 0) {
+    pagination.prev = {
+      page: page - 1,
+      limit
+    };
+  }
+
+  // Send response with pagination metadata
   res.status(200).json({
     success: true,
     count: rents.length,
+    totalCount: total,
+    pagination,
     data: rents,
   });
 });
