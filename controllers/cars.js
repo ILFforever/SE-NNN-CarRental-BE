@@ -645,7 +645,7 @@ exports.getMostPopularCars = async (req, res, next) => {
           model: 1,
           tier: 1,
           dailyRate: 1,
-          images: 1,
+          imageOrder: 1,
           completedRentalsCount: 1,
           totalRentAmount: 1,
           providerRating: 1,
