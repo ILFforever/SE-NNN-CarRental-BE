@@ -22,7 +22,7 @@ exports.getCars = async (req, res, next) => {
 
     // Parse the query string into a MongoDB query object
     const parsedQuery = JSON.parse(queryStr);
-    
+
     // Use populate with strict option set to false
     query = Car.find(parsedQuery).populate({
       path: "rents",
@@ -48,7 +48,7 @@ exports.getCars = async (req, res, next) => {
 
     // Create a copy of the query for counting available cars
     const baseQueryForCounting = { ...parsedQuery };
-    
+
     // Build the available cars query (only checks for available: true)
     const availableCarsQuery = { ...baseQueryForCounting, available: true };
     if (req.query.providerId) {
@@ -71,14 +71,16 @@ exports.getCars = async (req, res, next) => {
     }
 
     // Count the matching documents
-    const totalMatchingCount = await Car.countDocuments(matchingQuery.getQuery());
+    const totalMatchingCount = await Car.countDocuments(
+      matchingQuery.getQuery()
+    );
 
     // Pagination
     const page = parseInt(req.query.page, 10) || 1;
     const limit = parseInt(req.query.limit, 10) || 25;
     const startIndex = (page - 1) * limit;
     const endIndex = page * limit;
-    
+
     query = query.skip(startIndex).limit(limit);
 
     // Execute the query
@@ -450,8 +452,8 @@ exports.checkCarAvailability = async (req, res, next) => {
         // กรณี 4: การจองใหม่ครอบคลุมการจองที่มีอยู่ทั้งหมด
         {
           startDate: { $lte: start },
-          returnDate: { $gte: end }
-        }
+          returnDate: { $gte: end },
+        },
       ],
     });
 
@@ -496,25 +498,25 @@ exports.toggleCarAvailability = async (req, res, next) => {
     if (!car) {
       return res.status(404).json({
         success: false,
-        error: 'Car not found'
+        error: "Car not found",
       });
     }
 
     // Check authorization - only admin or the car's provider can update availability
-    const isAdmin = req.user && req.user.role === 'admin';
-    const isOwner = req.provider && car.provider_id.toString() === req.provider.id;
+    const isAdmin = req.user && req.user.role === "admin";
+    const isOwner =
+      req.provider && car.provider_id.toString() === req.provider.id;
 
     if (!isAdmin && !isOwner) {
       return res.status(403).json({
         success: false,
-        error: 'Not authorized to update this car\'s availability'
+        error: "Not authorized to update this car's availability",
       });
     }
 
     // If no specific value is provided in the request, toggle the current value
-    const newAvailability = req.body.available !== undefined 
-      ? req.body.available 
-      : !car.available;
+    const newAvailability =
+      req.body.available !== undefined ? req.body.available : !car.available;
 
     // Update the car's availability
     const updatedCar = await Car.findByIdAndUpdate(
@@ -526,13 +528,135 @@ exports.toggleCarAvailability = async (req, res, next) => {
     res.status(200).json({
       success: true,
       data: updatedCar,
-      message: `Car availability set to ${newAvailability}`
+      message: `Car availability set to ${newAvailability}`,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({
       success: false,
-      error: err.message
+      error: err.message,
+    });
+  }
+};
+
+// @desc    Get most popular cars
+// @route   GET /api/v1/cars/popular
+// @access  Public
+exports.getMostPopularCars = async (req, res, next) => {
+  try {
+    // Aggregation pipeline to calculate car popularity
+    const popularCars = await Car.aggregate([
+      // Lookup to join with rents and providers
+      {
+        $lookup: {
+          from: "rents",
+          localField: "_id",
+          foreignField: "car",
+          as: "rentHistory",
+        },
+      },
+      {
+        $lookup: {
+          from: "car_providers",
+          localField: "provider_id",
+          foreignField: "_id",
+          as: "providerDetails",
+        },
+      },
+
+      // Unwind the provider details (since it's an array from lookup)
+      {
+        $unwind: { path: "$providerDetails", preserveNullAndEmptyArrays: true },
+      },
+
+      // Calculate metrics
+      {
+        $addFields: {
+          // Count of completed rentals
+          completedRentalsCount: {
+            $size: {
+              $filter: {
+                input: "$rentHistory",
+                as: "rent",
+                cond: { $eq: ["$$rent.status", "completed"] },
+              },
+            },
+          },
+
+          // Provider's average rating
+          providerRating: "$providerDetails.review.averageRating",
+
+          // Total completed rent amount
+          totalRentAmount: {
+            $sum: {
+              $map: {
+                input: {
+                  $filter: {
+                    input: "$rentHistory",
+                    as: "rent",
+                    cond: { $eq: ["$$rent.status", "completed"] },
+                  },
+                },
+                as: "completedRent",
+                in: "$$completedRent.finalPrice",
+              },
+            },
+          },
+        },
+      },
+
+      // Calculate popularity score
+      {
+        $addFields: {
+          popularityScore : {
+            $add: [
+                // Completed rentals count (0-80 points)
+                // Use a logarithmic scale to prevent linear dominance
+                { $multiply: [
+                    { $log10: { $add: ['$completedRentalsCount', 1] } }, 
+                    80 
+                ]},
+                
+                // Provider rating (0-20 points)
+                { $multiply: ['$providerRating', 4] }
+            ]
+        },
+        },
+      },
+
+      // Sort by popularity score in descending order
+      { $sort: { popularityScore: -1 } },
+
+      // Limit to top 10 cars
+      { $limit: 10 },
+
+      // Project only necessary fields
+      {
+        $project: {
+          _id: 1,
+          brand: 1,
+          model: 1,
+          tier: 1,
+          dailyRate: 1,
+          images: 1,
+          completedRentalsCount: 1,
+          totalRentAmount: 1,
+          providerRating: 1,
+          popularityScore: 1,
+        },
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      count: popularCars.length,
+      data: popularCars,
+    });
+  } catch (err) {
+    console.error("Error fetching popular cars:", err);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching popular cars",
     });
   }
 };
