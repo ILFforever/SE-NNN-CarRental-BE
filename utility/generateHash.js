@@ -13,6 +13,13 @@ exports.generateFileHash = (file) => {
   return combined;
 };
 
+/**
+ * 
+ * @param {string} uid UID of the user
+ * @param {string} cash Cash amount
+ * @returns Hash of the UID and cash amount
+ * @description Generates a hash for the QR code using SHA-256 algorithm
+ */
 exports.generateQRHash = (uid, cash) => {
   const hash = crypto
     .createHash("sha256")

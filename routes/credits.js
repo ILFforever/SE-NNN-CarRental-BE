@@ -12,10 +12,15 @@ const {
     getTransactionById,
     getUserTransactionHistory,
     topupQrCode,
-    receiveQrCode
+    receiveQrCode,
+    getQrCodeStatus
 } = require('../controllers/credits');
 
 const { protect, authorize } = require('../middleware/auth');
+
+// Topup Endpoints (There are public endpoints)
+router.get('/topup/retrieve', receiveQrCode);
+router.get('/topup/status', getQrCodeStatus);
 
 // Apply protection to all routes
 router.use(protect);
@@ -23,11 +28,12 @@ router.use(protect);
 // User credit endpoints
 router.get('/', getCredits);
 router.get('/history', getUserTransactionHistory);
-router.post('/topup', topupQrCode);
-router.get('/topup/retrieve', receiveQrCode);
 router.post('/add', addCredits);
 router.post('/use', useCredits);
 router.post('/pay-rental/:rentalId', payRentalWithCredits);
+
+// Topup Endpoints
+router.post('/topup', topupQrCode);
 
 // Admin-only endpoints
 router.post('/refund', authorize('admin'), refundCredits);

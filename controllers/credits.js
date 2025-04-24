@@ -61,19 +61,36 @@ const validateAndGetEntity = async (id, model) => {
 // @route POST /api/v1/credits/topup
 // @access Private
 exports.topupQrCode = asyncHandler(async (req, res) => {
-  const { uid, cash } = req.body;
-  if (!uid || !cash) {
+  const { uid, amount } = req.body;
+  if (!uid || !amount) {
     return res
       .status(400)
-      .json({ success: false, message: "Missing uid or cash on body" });
+      .json({ success: false, message: "Missing uid" });
+  }else if (!amount) {
+    if (typeof amount === "number" && amount < 100) 
+        return res.status(400).json({
+            success: false,
+            message: "Minimum to top-up amount is 100"
+        });
+    return res
+      .status(400)
+      .json({ success: false, message: "Missing cash amount" });
   }
 
   try {
-    const hash = await generateQRHash(uid, cash);
+    // Check that's uid is valid
+    const userValid = await User.findById(uid);
+    if (!userValid) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid uid" });
+    }
+
+    const hash = generateQRHash(uid, amount);
 
     await redis.set(
       hash,
-      JSON.stringify({ uid, cash, status: "pending" }),
+      JSON.stringify({ uid, amount, status: "pending" }),
       "EX",
       60 * 5
     );
@@ -81,6 +98,7 @@ exports.topupQrCode = asyncHandler(async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "QR code generated successfully",
+      transaction_id: hash,
       url: "https://droplet.ngixx.in.th/api/v1/qrcode/" + hash,
     })
   } catch (error) {
@@ -100,7 +118,7 @@ exports.receiveQrCode = asyncHandler(async (req, res) => {
     return res.status(400).render("pages/status", {
       locals: {
         uid: uid,
-        cash: cash,
+        amount: amount,
         status: "error",
       },
     });
@@ -115,24 +133,83 @@ exports.receiveQrCode = asyncHandler(async (req, res) => {
       },
     });
   }
-  const { uid, cash, status } = JSON.parse(hashData);
+  const { uid, amount, status } = JSON.parse(hashData);
   if (status !== "pending") {
     return res.status(400).render("status", {
       locals: {
         uid: uid,
-        cash: cash,
+        amount: amount,
         status: "already processed",
         showDetails: true,
         transactionDetails: {
           uid: uid,
-          cash: cash,
+          amount: amount,
         },
       },
     });
   } else {
+    try {
+        // Start a transaction session
+        let session = await mongoose.startSession();
+        session.startTransaction();
+        const entity = await User.findById(uid).session(session);
+        if (!entity) {
+            throw new Error(`User not found with ID: ${uid}`);
+        }
+
+        // Initialize credits if needed
+        if (entity.credits === undefined) {
+            entity.credits = 0;
+        }
+
+        // Update credits
+        const updatedEntity = await User.findByIdAndUpdate(
+            uid,
+            { $inc: { credits: amount } },
+            { new: true, runValidators: true, session }
+        );
+
+        // Create a new transaction record
+        const transactionData = {
+            amount: amount,
+            description: "Credit deposit",
+            type: "deposit",
+            reference: "QRCode",
+            status: 'completed'
+        };
+
+        // Set the entity field dynamically
+        transactionData.user = uid;
+        await Transaction.create(
+            [transactionData],
+            { session }
+        );
+
+        // Commit transaction
+        await session.commitTransaction();
+        session.endSession();
+        res.status(200).render("status", {
+            locals: {
+                status: "success",
+                showDetails: true,
+                transactionDetails: {
+                    uid: uid,
+                    amount: amount,
+                },
+            },
+        });
+    } catch (error) {
+        console.error(error)
+        return res.status(404).render("status", {
+            locals: {
+                status: "error",
+                message: error.message
+            }
+        })
+    }
     await redis.set(
       trans_id,
-      JSON.stringify({ uid, cash, status: "completed" }),
+      JSON.stringify({ uid, amount, status: "completed" }),
       "EX",
       60 * 5
     );
@@ -143,11 +220,34 @@ exports.receiveQrCode = asyncHandler(async (req, res) => {
         showDetails: true,
         transactionDetails: {
           uid: uid,
-          cash: cash,
+          amount: amount,
         },
       },
     });
   }
+});
+
+// @desc    Get current status of transaction
+// @route   GET /api/v1/credits/topup/status?trans_id=hash
+// @access  Private
+exports.getQrCodeStatus = asyncHandler(async (req, res) => {
+    const { trans_id } = req.query;
+    if (!trans_id) {
+        return res.status(400).json({
+            success: false,
+            message: 'Transaction ID is required'
+        })
+    }
+    // Lookup on redis
+    const hashData = await redis.get(trans_id);
+    if (hashData === null) {
+        return res.status(404).json({
+            success: false,
+            message: 'Transaction not found or expired'
+        });
+    }
+    const topupDetails = JSON.parse(hashData);
+    return res.status(200).json(topupDetails);
 });
 
 // @desc    Get entity's current credit balance and transaction history
