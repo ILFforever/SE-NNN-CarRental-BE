@@ -10,7 +10,6 @@ const {
     deleteRent, 
     completeRent,
     confirmRent,
-    getProviderRents,
     cancelRent,
     rateProvider,
     markAsPaid  // Add the new controller function
