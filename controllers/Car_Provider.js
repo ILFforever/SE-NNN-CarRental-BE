@@ -2,6 +2,7 @@ const Car_Provider = require('../models/Car_Provider');
 const asyncHandler = require('express-async-handler');
 const Car = require('../models/Car');
 const ValidToken = require('../models/ValidToken');
+const Rent = require('../models/Rent');
 
 // @desc    Get all car providers
 // @route   GET /api/providers
@@ -246,3 +247,178 @@ const sendTokenResponse = async (provider, statusCode, res) => {
         token
     });
 };
+
+// Add this function to controllers/Car_Provider.js
+
+// @desc    Get provider dashboard data
+// @route   GET /api/v1/Car_Provider/dashboard
+// @access  Private/Provider
+exports.getProviderDashboard = asyncHandler(async (req, res) => {
+    try {
+      // Only allow car providers to access this route
+      if (!req.provider) {
+        return res.status(403).json({
+          success: false,
+          message: "Only car providers can access this route"
+        });
+      }
+  
+      const providerId = req.provider.id;
+  
+      // Find all cars belonging to this provider
+      const cars = await Car.find({ provider_id: providerId });
+      
+      // Calculate summary stats
+      const totalCars = cars.length;
+      const availableCars = cars.filter(car => car.available).length;
+      const rentedCars = totalCars - availableCars;
+  
+      // Get car types breakdown
+      const carTypesCounts = {};
+      cars.forEach(car => {
+        if (!carTypesCounts[car.type]) {
+          carTypesCounts[car.type] = 0;
+        }
+        carTypesCounts[car.type]++;
+      });
+      
+      // Format car types for frontend display
+      const carTypes = Object.entries(carTypesCounts).map(([type, count]) => ({
+        type: type.charAt(0).toUpperCase() + type.slice(1), // Capitalize first letter
+        count
+      }));
+  
+      // Find active and pending rentals for provider's cars
+      const carIds = cars.map(car => car._id);
+      
+      const activeRentals = await Rent.find({ 
+        car: { $in: carIds },
+        status: 'active'
+      }).populate('car user');
+      
+      const pendingRentals = await Rent.find({ 
+        car: { $in: carIds },
+        status: 'pending'
+      }).populate('car user');
+  
+      // Calculate monthly revenue
+      const firstDayOfMonth = new Date();
+      firstDayOfMonth.setDate(1);
+      firstDayOfMonth.setHours(0, 0, 0, 0);
+      
+      const completedRentalsThisMonth = await Rent.find({
+        car: { $in: carIds },
+        status: 'completed',
+        actualReturnDate: { $gte: firstDayOfMonth }
+      });
+      
+      const monthlyRevenue = completedRentalsThisMonth.reduce((sum, rental) => 
+        sum + (rental.finalPrice || rental.price), 0);
+  
+      // Get recent rentals (completed, active, or pending) - limit to 5
+      const recentRentals = await Rent.find({
+        car: { $in: carIds },
+        status: { $in: ['completed', 'active', 'pending'] }
+      })
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .populate({
+        path: 'car',
+        select: 'brand model license_plate type'
+      })
+      .populate({
+        path: 'user',
+        select: 'name email telephone_number'
+      });
+  
+      // Format recent rentals for display
+      const formattedRecentRentals = recentRentals.map(rental => ({
+        id: rental._id,
+        status: rental.status,
+        startDate: rental.startDate,
+        returnDate: rental.returnDate,
+        price: rental.finalPrice || rental.price,
+        customer: {
+          name: rental.user.name,
+          email: rental.user.email
+        },
+        car: {
+          brand: rental.car.brand,
+          model: rental.car.model,
+          licensePlate: rental.car.license_plate
+        }
+      }));
+  
+      // Calculate rental stats if any completed rentals exist
+      const completedRentals = await Rent.find({
+        car: { $in: carIds },
+        status: 'completed'
+      });
+  
+      let rentalStats = null;
+      if (completedRentals.length > 0) {
+        const totalRentals = completedRentals.length;
+        const totalRevenue = completedRentals.reduce((sum, rental) => 
+          sum + (rental.finalPrice || rental.price), 0);
+        
+        // Calculate average rental duration in days
+        const avgDuration = completedRentals.reduce((sum, rental) => {
+          const start = new Date(rental.startDate);
+          const end = new Date(rental.actualReturnDate || rental.returnDate);
+          const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+          return sum + days;
+        }, 0) / totalRentals;
+  
+        rentalStats = {
+          totalRentals,
+          totalRevenue,
+          avgDuration: Math.round(avgDuration * 10) / 10, // Round to 1 decimal place
+          avgRentalValue: Math.round((totalRevenue / totalRentals) * 100) / 100
+        };
+      }
+  
+      // Return the dashboard data
+      res.status(200).json({
+        success: true,
+        data: {
+          totalCars,
+          availableCars,
+          rentedCars,
+          carTypes,
+          activeRentals: {
+            count: activeRentals.length,
+            list: activeRentals.map(rental => ({
+              id: rental._id,
+              startDate: rental.startDate,
+              returnDate: rental.returnDate,
+              customerName: rental.user.name,
+              car: `${rental.car.brand} ${rental.car.model}`
+            }))
+          },
+          pendingRentals: {
+            count: pendingRentals.length,
+            list: pendingRentals.map(rental => ({
+              id: rental._id,
+              startDate: rental.startDate,
+              returnDate: rental.returnDate,
+              customerName: rental.user.name,
+              car: `${rental.car.brand} ${rental.car.model}`
+            }))
+          },
+          monthlyRevenue: {
+            amount: monthlyRevenue,
+            count: completedRentalsThisMonth.length
+          },
+          recentRentals: formattedRecentRentals,
+          rentalStats
+        }
+      });
+      
+    } catch (error) {
+      console.error('Provider dashboard error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while fetching dashboard data'
+      });
+    }
+  });
