@@ -576,7 +576,8 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
       });
     }
 
-    // Create the rental record
+    // Create the rental record with deposit information
+    req.body.depositAmount = depositAmount;
     const rent = await Rent.create(req.body);
 
     if (!rent) {
@@ -593,39 +594,12 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
       { new: true, runValidators: true }
     );
 
-    // Create a deposit transaction record
-    const transactionData = {
-      amount: -depositAmount,
-      description: `10% Deposit for reservation #${rent._id}`,
-      type: "deposit",
-      reference: rent._id.toString(),
-      status: "completed",
-      user: user._id,
-      metadata: {
-        rentalDetails: {
-          startDate: rent.startDate,
-          returnDate: rent.returnDate,
-          totalPrice: finalPrice,
-          depositAmount: depositAmount,
-          isInitialDeposit: true,
-        },
-      },
-    };
-
-    const transaction = await Transaction.create(transactionData);
-
-    // Update rental with deposit information
-    rent.depositAmount = depositAmount;
-    rent.depositTransactionId = transaction._id;
-    await rent.save();
-
     res.status(201).json({
       success: true,
       totalPrice: finalPrice,
       depositAmount: depositAmount,
       remainingCredits: updatedUser.credits,
       data: rent,
-      transaction: transaction,
     });
   } catch (error) {
     res.status(400).json({
