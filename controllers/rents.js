@@ -4,7 +4,7 @@ const User = require("../models/User");
 const Service = require("../models/Service");
 const Car_Provider = require("../models/Car_Provider");
 const asyncHandler = require("express-async-handler");
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 // @desc    Get user's rents (for regular users)
 // @route   GET /api/v1/rents
@@ -45,7 +45,7 @@ exports.getUserRents = asyncHandler(async (req, res, next) => {
   if (endIndex < total) {
     pagination.next = {
       page: page + 1,
-      limit
+      limit,
     };
   }
 
@@ -53,7 +53,7 @@ exports.getUserRents = asyncHandler(async (req, res, next) => {
   if (startIndex > 0) {
     pagination.prev = {
       page: page - 1,
-      limit
+      limit,
     };
   }
 
@@ -67,12 +67,11 @@ exports.getUserRents = asyncHandler(async (req, res, next) => {
   });
 });
 
-
 // @desc    Get rents for admin or provider
 // @route   GET /api/v1/rents
 // @access  Private/Admin or Private/Provider
 exports.getAllRents = asyncHandler(async (req, res) => {
-  const isAdmin = !!req.user?.role && req.user.role === 'admin';
+  const isAdmin = !!req.user?.role && req.user.role === "admin";
   const isProvider = !!req.provider;
 
   if (!isAdmin && !isProvider) {
@@ -100,11 +99,13 @@ exports.getAllRents = asyncHandler(async (req, res) => {
           count: 0,
           totalCount: 0,
           pagination: {},
-          data: []
+          data: [],
         });
       }
 
-      const carIds = providerCars.map(car => new mongoose.Types.ObjectId(car._id));
+      const carIds = providerCars.map(
+        (car) => new mongoose.Types.ObjectId(car._id)
+      );
       matchFilters.car = { $in: carIds };
     }
 
@@ -116,10 +117,14 @@ exports.getAllRents = asyncHandler(async (req, res) => {
     // Date filters
     const dateConditions = [];
     if (req.query.startDate) {
-      dateConditions.push({ startDate: { $gte: new Date(req.query.startDate) } });
+      dateConditions.push({
+        startDate: { $gte: new Date(req.query.startDate) },
+      });
     }
     if (req.query.endDate) {
-      dateConditions.push({ returnDate: { $lte: new Date(req.query.endDate) } });
+      dateConditions.push({
+        returnDate: { $lte: new Date(req.query.endDate) },
+      });
     }
     if (dateConditions.length) {
       matchFilters.$and = dateConditions;
@@ -128,7 +133,7 @@ exports.getAllRents = asyncHandler(async (req, res) => {
     // Optional sorting
     let sort = { createdAt: -1 };
     if (req.query.sort) {
-      const sortField = req.query.sort.startsWith('-')
+      const sortField = req.query.sort.startsWith("-")
         ? { [req.query.sort.slice(1)]: -1 }
         : { [req.query.sort]: 1 };
       sort = sortField;
@@ -142,22 +147,25 @@ exports.getAllRents = asyncHandler(async (req, res) => {
           statusPriority: {
             $switch: {
               branches: [
-                { case: { $in: ["$status", ["active", "pending", "unpaid"]] }, then: 1 },
+                {
+                  case: { $in: ["$status", ["active", "pending", "unpaid"]] },
+                  then: 1,
+                },
                 { case: { $eq: ["$status", "completed"] }, then: 2 },
-                { case: { $eq: ["$status", "cancelled"] }, then: 3 }
+                { case: { $eq: ["$status", "cancelled"] }, then: 3 },
               ],
-              default: 4
-            }
-          }
-        }
+              default: 4,
+            },
+          },
+        },
       },
       {
         $lookup: {
           from: "cars",
           localField: "car",
           foreignField: "_id",
-          as: "carDetails"
-        }
+          as: "carDetails",
+        },
       },
       { $unwind: { path: "$carDetails", preserveNullAndEmptyArrays: true } },
       {
@@ -165,8 +173,8 @@ exports.getAllRents = asyncHandler(async (req, res) => {
           from: "users",
           localField: "user",
           foreignField: "_id",
-          as: "userDetails"
-        }
+          as: "userDetails",
+        },
       },
       { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
       { $sort: sort },
@@ -200,16 +208,16 @@ exports.getAllRents = asyncHandler(async (req, res) => {
             available: "$carDetails.available",
             dailyRate: "$carDetails.dailyRate",
             tier: "$carDetails.tier",
-            images: "$carDetails.images"
+            images: "$carDetails.images",
           },
           user: {
             _id: "$userDetails._id",
             name: "$userDetails.name",
             email: "$userDetails.email",
-            telephone_number: "$userDetails.telephone_number"
-          }
-        }
-      }
+            telephone_number: "$userDetails.telephone_number",
+          },
+        },
+      },
     ];
 
     const rents = await Rent.aggregate(pipeline);
@@ -228,19 +236,17 @@ exports.getAllRents = asyncHandler(async (req, res) => {
       count: rents.length,
       totalCount,
       pagination,
-      data: rents
+      data: rents,
     });
-
   } catch (err) {
     console.error(`Error fetching rentals: ${err.message}`);
     console.error(err.stack);
     res.status(500).json({
       success: false,
-      message: "Server error while fetching rentals"
+      message: "Server error while fetching rentals",
     });
   }
 });
-
 
 // @desc    Get single rent
 // @route   GET /api/v1/rents/:id
@@ -352,12 +358,10 @@ exports.addRent = asyncHandler(async (req, res, next) => {
   });
 
   if (existingRents.length >= 3 && req.user.role !== "admin") {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: `User with ID ${req.body.user} already has 3 active rentals`,
-      });
+    return res.status(400).json({
+      success: false,
+      message: `User with ID ${req.body.user} already has 3 active rentals`,
+    });
   }
 
   const {
@@ -370,12 +374,10 @@ exports.addRent = asyncHandler(async (req, res, next) => {
   } = req.body;
 
   if (!carId || !startDate || !returnDate || !price) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: "Please provide a car ID, start date, end date, and price",
-      });
+    return res.status(400).json({
+      success: false,
+      message: "Please provide a car ID, start date, end date, and price",
+    });
   }
 
   const car = await Car.findById(carId);
@@ -387,12 +389,10 @@ exports.addRent = asyncHandler(async (req, res, next) => {
 
   // Check tier restriction (Admins bypass this check)
   if (req.user.role !== "admin" && user.tier < car.tier) {
-    return res
-      .status(400)
-      .json({
-        success: false,
-        message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})`,
-      });
+    return res.status(400).json({
+      success: false,
+      message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})`,
+    });
   }
 
   const start = new Date(startDate).toISOString();
@@ -454,43 +454,35 @@ exports.addRent = asyncHandler(async (req, res, next) => {
 // @route POST /api/v1/rents/with-deposit
 // @access Private
 exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
-  let session = null;
-  
   try {
-    // Start a transaction session
-    session = await mongoose.startSession();
-    session.startTransaction();
-    
     // Allow admins to rent for others, otherwise, force req.user.id
     if (req.user.role === "admin" && req.body.user) {
       req.body.user = req.body.user; // Admin specifies user
     } else {
       req.body.user = req.user.id; // Regular users can only rent for themselves
     }
-    
+
     // Fetch the user renting the car
-    const user = await User.findById(req.body.user).session(session);
+    const user = await User.findById(req.body.user);
     if (!user) {
-      await session.abortTransaction();
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
-    
+
     // Check if the user already has 3 active/pending rentals (Admins can bypass this)
     const existingRents = await Rent.find({
       user: req.body.user,
       status: { $in: ["active", "pending", "unpaid"] },
-    }).session(session);
-    
+    });
+
     if (existingRents.length >= 3 && req.user.role !== "admin") {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `User with ID ${req.body.user} already has 3 active rentals`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `User with ID ${req.body.user} already has 3 active rentals`,
+      });
     }
-    
+
     const {
       car: carId,
       startDate,
@@ -499,53 +491,45 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
       service,
       discountAmount,
     } = req.body;
-    
+
     if (!carId || !startDate || !returnDate || !price) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Please provide a car ID, start date, end date, and price",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a car ID, start date, end date, and price",
+      });
     }
-    
-    const car = await Car.findById(carId).session(session);
+
+    const car = await Car.findById(carId);
     if (!car) {
-      await session.abortTransaction();
       return res
         .status(404)
         .json({ success: false, message: `No car with the ID ${carId}` });
     }
-    
+
     // Check tier restriction (Admins bypass this check)
     if (req.user.role !== "admin" && user.tier < car.tier) {
-      await session.abortTransaction();
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})`,
-        });
+      return res.status(400).json({
+        success: false,
+        message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})`,
+      });
     }
-    
+
     const start = new Date(startDate).toISOString();
     const end = new Date(returnDate).toISOString();
     const duration =
       Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)) + 1; // to match FE
-    
+
     if (duration <= 0) {
-      await session.abortTransaction();
       return res
         .status(400)
         .json({ success: false, message: "End date must be after start date" });
     }
-    
+
     // Calculate service price if services are selected
     let servicePrice = 0;
     if (service && service.length > 0) {
       // Fetch service details to get their rates
-      const services = await Service.find({ _id: { $in: service } }).session(session);
+      const services = await Service.find({ _id: { $in: service } });
       // Calculate total service price based on duration and service type (daily vs one-time)
       if (services.length > 0) {
         servicePrice = services.reduce((total, svc) => {
@@ -554,19 +538,19 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
         }, 0);
       }
     }
-    
+
     // Calculate discount amount based on user tier, if not provided
     const tierDiscountRate = [0, 5, 10, 15, 20][user.tier] || 0; // Tier discount percentage lookup
     const calculatedDiscountAmount =
       ((price + servicePrice) * tierDiscountRate) / 100 || 0;
-    
+
     // Use provided discountAmount or calculate it
     const finalDiscountAmount =
       discountAmount !== undefined ? discountAmount : calculatedDiscountAmount;
-    
+
     // Calculate final price
     const finalPrice = price + servicePrice - finalDiscountAmount;
-    
+
     // Set values for the rent
     req.body.price = price;
     req.body.servicePrice = servicePrice;
@@ -574,94 +558,79 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
     req.body.finalPrice = finalPrice;
     req.body.startDate = start;
     req.body.returnDate = end;
-    
+
     // Calculate 10% deposit amount and round to 2 decimal places
-    const depositAmount = Math.round((finalPrice * 0.1) * 100) / 100;
-    
+    const depositAmount = Math.round(finalPrice * 0.1 * 100) / 100;
+
     // Check if user has enough credits for deposit
     // Initialize credits if needed
     if (user.credits === undefined) {
       user.credits = 0;
-      await user.save({ session });
+      await user.save();
     }
-    
+
     if (user.credits < depositAmount) {
-      await session.abortTransaction();
       return res.status(400).json({
         success: false,
-        message: `Insufficient credits. You need ${depositAmount} credits to pay the deposit for this reservation.`
+        message: `Insufficient credits. You need ${depositAmount} credits to pay the deposit for this reservation.`,
       });
     }
-    
+
     // Create the rental record
-    const rent = await Rent.create([req.body], { session });
-    
-    if (!rent || rent.length === 0) {
-      await session.abortTransaction();
+    const rent = await Rent.create(req.body);
+
+    if (!rent) {
       return res.status(500).json({
         success: false,
-        message: 'Failed to create reservation'
+        message: "Failed to create reservation",
       });
     }
-    
+
     // Update user's credits (deduct deposit)
     const updatedUser = await User.findByIdAndUpdate(
       user._id,
       { $inc: { credits: -depositAmount } },
-      { new: true, runValidators: true, session }
+      { new: true, runValidators: true }
     );
-    
+
     // Create a deposit transaction record
     const transactionData = {
       amount: -depositAmount,
-      description: `10% Deposit for reservation #${rent[0]._id}`,
-      type: 'deposit',
-      reference: rent[0]._id.toString(),
-      status: 'completed',
+      description: `10% Deposit for reservation #${rent._id}`,
+      type: "deposit",
+      reference: rent._id.toString(),
+      status: "completed",
       user: user._id,
       metadata: {
         rentalDetails: {
-          startDate: rent[0].startDate,
-          returnDate: rent[0].returnDate,
+          startDate: rent.startDate,
+          returnDate: rent.returnDate,
           totalPrice: finalPrice,
           depositAmount: depositAmount,
-          isInitialDeposit: true
-        }
-      }
+          isInitialDeposit: true,
+        },
+      },
     };
-    
-    const transaction = await Transaction.create(
-      [transactionData],
-      { session }
-    );
-    
+
+    const transaction = await Transaction.create(transactionData);
+
     // Update rental with deposit information
-    rent[0].depositAmount = depositAmount;
-    rent[0].depositTransactionId = transaction[0]._id;
-    await rent[0].save({ session });
-    
-    // Commit transaction
-    await session.commitTransaction();
-    session.endSession();
-    
+    rent.depositAmount = depositAmount;
+    rent.depositTransactionId = transaction._id;
+    await rent.save();
+
     res.status(201).json({
       success: true,
       totalPrice: finalPrice,
       depositAmount: depositAmount,
       remainingCredits: updatedUser.credits,
-      data: rent[0],
-      transaction: transaction[0]
+      data: rent,
+      transaction: transaction,
     });
   } catch (error) {
-    // Abort transaction on error
-    if (session) {
-      await session.abortTransaction();
-      session.endSession();
-    }
-    
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 });
@@ -677,12 +646,10 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
   });
 
   if (!rent) {
-    return res
-      .status(404)
-      .json({
-        success: false,
-        message: `No rent with the id of ${req.params.id}`,
-      });
+    return res.status(404).json({
+      success: false,
+      message: `No rent with the id of ${req.params.id}`,
+    });
   }
 
   // Check authorization for users
@@ -741,21 +708,17 @@ exports.deleteRent = asyncHandler(async (req, res, next) => {
   const rent = await Rent.findById(req.params.id);
 
   if (!rent) {
-    return res
-      .status(404)
-      .json({
-        success: false,
-        message: `No rent with the id of ${req.params.id}`,
-      });
+    return res.status(404).json({
+      success: false,
+      message: `No rent with the id of ${req.params.id}`,
+    });
   }
 
   if (rent.user.toString() !== req.user.id && req.user.role !== "admin") {
-    return res
-      .status(401)
-      .json({
-        success: false,
-        message: `User ${req.user.id} is not authorized to delete this rent`,
-      });
+    return res.status(401).json({
+      success: false,
+      message: `User ${req.user.id} is not authorized to delete this rent`,
+    });
   }
 
   await rent.deleteOne();
@@ -771,14 +734,14 @@ exports.deleteRent = asyncHandler(async (req, res, next) => {
 // @access  Private
 exports.completeRent = asyncHandler(async (req, res, next) => {
   let rent = await Rent.findById(req.params.id).populate({
-    path: 'car',
-    select: 'tier' // Ensure the tier field is included
+    path: "car",
+    select: "tier", // Ensure the tier field is included
   });
 
   if (!rent) {
     return res.status(404).json({
       success: false,
-      message: `No rent with the id of ${req.params.id}`
+      message: `No rent with the id of ${req.params.id}`,
     });
   }
 
@@ -789,7 +752,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   let isAuthorized = false;
 
   if (req.user) {
-    if (req.user.role === 'admin') {
+    if (req.user.role === "admin") {
       // Admin can complete any rental
       isAuthorized = true;
     } else if (rent.user.toString() === req.user.id) {
@@ -799,7 +762,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   } else if (req.provider) {
     // For provider, check if the car belongs to them
     const car = await Car.findById(rent.car);
-    
+
     if (car && car.provider_id.toString() === req.provider.id) {
       isAuthorized = true;
     }
@@ -808,15 +771,19 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   if (!isAuthorized) {
     return res.status(403).json({
       success: false,
-      message: 'Not authorized to complete this rental'
+      message: "Not authorized to complete this rental",
     });
   }
 
   // Check if rental is already in a final state
-  if (rent.status === 'completed' || rent.status === 'cancelled' || rent.status === 'unpaid') {
+  if (
+    rent.status === "completed" ||
+    rent.status === "cancelled" ||
+    rent.status === "unpaid"
+  ) {
     return res.status(400).json({
       success: false,
-      message: `Rent has already been ${rent.status}`
+      message: `Rent has already been ${rent.status}`,
     });
   }
 
@@ -827,43 +794,46 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
   let user = await User.findById(rent.user);
   if (user) {
     // Include the finalPrice in the total spend calculation
-    const totalSpend = rent.finalPrice || (rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0));
+    const totalSpend =
+      rent.finalPrice ||
+      rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0);
     user.total_spend += totalSpend;
     await user.save(); // This triggers pre-save middleware
   }
- 
+
   const carInfo = await Car.findByIdAndUpdate(rent.car, { available: true });
   let daysLate = 0;
   let lateFee = 0;
   if (today > returnDate) {
     daysLate = Math.ceil((today - returnDate) / (1000 * 60 * 60 * 24));
     lateFee = (rent.car.tier + 1) * 500 * daysLate;
-  } 
-  
+  }
+
   // Calculate total price including late fees
-  const baseRentalCost = rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0);
+  const baseRentalCost =
+    rent.price + (rent.servicePrice || 0) - (rent.discountAmount || 0);
   const finalPriceWithLateFees = baseRentalCost + lateFee;
 
   // Update the rent with completion details
   // Changed status to "unpaid" instead of "completed"
-  let updateData = { 
-    status: 'unpaid', // Changed from 'completed' to 'unpaid'
+  let updateData = {
+    status: "unpaid", // Changed from 'completed' to 'unpaid'
     actualReturnDate: new Date(),
-    ...req.body
+    ...req.body,
   };
 
   // Add late fees if applicable
   if (lateFee > 0) {
     updateData.additionalCharges = {
       ...(rent.additionalCharges || {}),
-      lateFee: lateFee
+      lateFee: lateFee,
     };
     updateData.finalPrice = finalPriceWithLateFees;
   }
 
   rent = await Rent.findByIdAndUpdate(req.params.id, updateData, {
     new: true,
-    runValidators: true
+    runValidators: true,
   });
 
   // Detect provider car equal with 10
@@ -871,14 +841,14 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
     carInfo.provider_id,
     { $inc: { completeRent: 1 } },
     { new: true }
-  )
+  );
 
   if (providerProfile.completeRent == 10) {
     await Car_Provider.findByIdAndUpdate(
       carInfo.provider_id,
       { $set: { verified: true } },
       { new: true }
-    )
+    );
   }
 
   res.status(200).json({
@@ -890,7 +860,7 @@ exports.completeRent = asyncHandler(async (req, res, next) => {
     car_tier: rent.car.tier,
     final_price: rent.finalPrice || finalPriceWithLateFees,
     data: rent,
-    message: 'Rental marked as unpaid successfully' // Added a message to indicate new status
+    message: "Rental marked as unpaid successfully", // Added a message to indicate new status
   });
 });
 
@@ -1127,20 +1097,20 @@ exports.markAsPaid = asyncHandler(async (req, res, next) => {
   if (!rent) {
     return res.status(404).json({
       success: false,
-      message: `No rent with the id of ${req.params.id}`
+      message: `No rent with the id of ${req.params.id}`,
     });
   }
 
   // Check authorization
   let isAuthorized = false;
 
-  if (req.user && req.user.role === 'admin') {
+  if (req.user && req.user.role === "admin") {
     // Admin can mark any rental as paid
     isAuthorized = true;
   } else if (req.provider) {
     // For provider, check if the car belongs to them
     const car = await Car.findById(rent.car);
-    
+
     if (car && car.provider_id.toString() === req.provider.id) {
       isAuthorized = true;
     }
@@ -1149,30 +1119,34 @@ exports.markAsPaid = asyncHandler(async (req, res, next) => {
   if (!isAuthorized) {
     return res.status(403).json({
       success: false,
-      message: 'Not authorized to mark this rental as paid'
+      message: "Not authorized to mark this rental as paid",
     });
   }
 
   // Only unpaid rentals can be marked as completed
-  if (rent.status !== 'unpaid') {
+  if (rent.status !== "unpaid") {
     return res.status(400).json({
       success: false,
-      message: `Only unpaid rentals can be marked as paid. Current status: ${rent.status}`
+      message: `Only unpaid rentals can be marked as paid. Current status: ${rent.status}`,
     });
   }
 
   // Set status to completed
-  rent = await Rent.findByIdAndUpdate(req.params.id, { 
-    status: 'completed',
-    ...req.body // Allow additional fields to be updated (like payment reference, etc.)
-  }, {
-    new: true,
-    runValidators: true
-  });
+  rent = await Rent.findByIdAndUpdate(
+    req.params.id,
+    {
+      status: "completed",
+      ...req.body, // Allow additional fields to be updated (like payment reference, etc.)
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
 
   res.status(200).json({
     success: true,
     data: rent,
-    message: 'Rental marked as paid and completed successfully'
+    message: "Rental marked as paid and completed successfully",
   });
 });
