@@ -35,6 +35,12 @@ const provide = require('./routes/Car_Provider');
 const services = require('./routes/services');
 const qrcode = require('./routes/qrCode');
 
+// Swagger
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
+
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // Mount routers
 app.use('/api/v1/cars', cars);
 app.use('/api/v1/rents', rents);
