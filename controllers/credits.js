@@ -260,11 +260,14 @@ exports.getCredits = asyncHandler(async (req, res) => {
         // Get the authenticated entity
         const entity = await validateAndGetEntity(auth.id, auth.model);
         
+        // Round the credit balance to 2 decimal places before returning
+        const roundedCredits = Math.round(((entity.credits || 0) + Number.EPSILON) * 100) / 100;
+        
         // Return only the credit balance, not the transaction history
         res.status(200).json({
             success: true,
             data: {
-                credits: entity.credits || 0 // Default to 0 if credits field doesn't exist
+                credits: roundedCredits // Rounded to 2 decimal places
             }
         });
     } catch (error) {
@@ -1240,6 +1243,9 @@ exports.getTransactionById = asyncHandler(async (req, res) => {
         // Get entity's current credit balance
         const entity = await auth.model.findById(auth.id);
         
+        // Round the credit balance to 2 decimal places
+        const currentCredits = Math.round(((entity?.credits || 0) + Number.EPSILON) * 100) / 100;
+        
         // Calculate summary statistics
         const deposits = await Transaction.aggregate([
             { $match: { ...query, type: 'deposit' } },
@@ -1291,7 +1297,7 @@ exports.getTransactionById = asyncHandler(async (req, res) => {
             pagination,
             summary,
             data: {
-                currentCredits: entity ? (entity.credits || 0) : 0,
+                currentCredits: currentCredits,
                 transactions
             }
         });
