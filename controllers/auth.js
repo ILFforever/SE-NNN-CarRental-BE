@@ -87,9 +87,9 @@ exports.getCurrentUser = async(req, res, next) => {
     const userWithoutCreditHistory = user.toObject();
     
     // Delete the creditsHistory field
-    if (userWithoutCreditHistory.creditsHistory) {
-        delete userWithoutCreditHistory.creditsHistory;
-    }
+    // if (userWithoutCreditHistory.creditsHistory) {
+    //     delete userWithoutCreditHistory.creditsHistory;
+    // }
     
     // Send response
     res.status(200).json({

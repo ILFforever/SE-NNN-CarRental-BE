@@ -7,7 +7,8 @@ const {
     deleteCar,
     updateCarImageOrder, 
     checkCarAvailability,
-    toggleCarAvailability 
+    toggleCarAvailability,
+    getMostPopularCars 
 } = require('../controllers/cars');
 
 // Include rent router for nested routes
@@ -41,6 +42,10 @@ const upload = multer({
 // Re-route into other resource routers
 router.use('/:carId/rents', rentRouter);
 
+// Public route for most popular cars
+router.get('/popular', getMostPopularCars);
+
+// Regular car routes with authentication
 router
     .route('/')
     .get(getCars)
@@ -56,7 +61,7 @@ router
     .route('/check-availability/:carId')
     .get(protect, checkCarAvailability);
 
-// New route for updating image order
+// Route for updating image order
 router
     .route('/:id/image-order')
     .put(protect, authorize('admin', 'provider'), updateCarImageOrder);

@@ -10,10 +10,10 @@ const {
     deleteRent, 
     completeRent,
     confirmRent,
-    getProviderRents,
     cancelRent,
     rateProvider,
-    markAsPaid  // Add the new controller function
+    markAsPaid,  // Add the new controller function
+    addRentWithDeposit
 } = require('../controllers/rents');
 
 const router = express.Router({ mergeParams: true });
@@ -37,7 +37,7 @@ router
 // Provider-only route - get rentals for provider's cars
 router
     .route('/provider')
-    .get(getProviderRents);
+    .get(getAllRents);
 
 // Individual rent routes
 router
@@ -45,7 +45,7 @@ router
     .get(getRent)
     .put(updateRent)
     .delete(deleteRent);
-
+    
 // Complete a rent (return car) - now accessible by both admin and provider
 router
     .route('/:id/complete')
@@ -69,5 +69,9 @@ router
 router
     .route('/:id/rate')
     .post(rateProvider);
+
+router  
+    .route('/with-deposit')
+    .post(addRentWithDeposit);
 
 module.exports = router;
