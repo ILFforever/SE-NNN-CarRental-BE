@@ -11,8 +11,8 @@ const mongoose = require("mongoose");
 // @access  Private
 exports.getUserRents = asyncHandler(async (req, res, next) => {
   // Parse pagination parameters from query string
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 10;
+  const page = parseInt(req.query.page, 15) || 1;
+  const limit = parseInt(req.query.limit, 15) || 15;
   const startIndex = (page - 1) * limit;
   const endIndex = page * limit;
 
