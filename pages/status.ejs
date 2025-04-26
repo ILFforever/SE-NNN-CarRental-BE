@@ -1,221 +1,216 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Top-up Transaction</title>
-    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
-    <style>
-        body {
-            font-family: 'Prompt', sans-serif;
-            background-color: #f0ebe2;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-        }
-        
-        .status-card {
-            background-color: white;
-            border-radius: 12px;
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
-            padding: 30px;
-            width: 400px;
-            text-align: center;
-        }
-        
-        .icon-container {
-            width: 64px;  /* เพิ่มขนาดให้ใหญ่มาก */
-            height: 64px; /* เพิ่มขนาดให้ใหญ่มาก */
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 0 auto 30px; /* เพิ่ม margin bottom */
-            transition: transform 0.3s ease;
-            animation: pulse 1.5s infinite;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Top-up Transaction</title>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+  <script src="https://unpkg.com/framer-motion/dist/framer-motion.umd.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const motionDiv = document.getElementById("motion-card");
+      if (motion) {
+        motion.animate(motionDiv, { opacity: [0, 1], scale: [0.95, 1] }, { duration: 0.4 });
+      }
+    });
+  </script>
+  <style>
+    body {
+      font-family: 'Prompt', sans-serif;
+      background: linear-gradient(to bottom right, #111827, #1f2937, #374151);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 1rem;
+    }
 
-        @keyframes pulse {
-            0% { transform: scale(1); }
-            50% { transform: scale(1.05); }
-            100% { transform: scale(1); }
-        }
+    .status-card {
+      background-color: white;
+      border-radius: 1rem;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+      padding: 2rem;
+      width: 100%;
+      max-width: 400px;
+      text-align: center;
+      transition: all 0.3s ease;
+    }
 
-        .icon-container:hover {
-            transform: scale(1.05);
-        }
-        
-        .success-bg { background-color: #ecfdf5; }
-        .error-bg { background-color: #fef2f2; }
-        .pending-bg { background-color: #fffbeb; }
-        
-        .status-icon {
-            font-size: 80px; /* หรือ 100px ก็ได้ */
-        }
-        
-        .success-icon { color: #10b981; }
-        .error-icon { color: #ef4444; }
-        .pending-icon { color: #f59e0b; }
-        
-        .status-title {
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            color: #333;
-        }
-        
-        .status-message {
-            font-size: 16px;
-            line-height: 1.5;
-            color: #666;
-            margin-bottom: 24px;
-        }
-        
-        .transaction-details {
-            background-color: #f9fafb;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 24px;
-            text-align: left;
-        }
-        
-        .detail-item {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 8px;
-        }
-        
-        .detail-label {
-            color: #6b7280;
-            font-size: 14px;
-        }
-        
-        .detail-value {
-            font-weight: 500;
-            color: #374151;
-            font-size: 14px;
-        }
-        
-        .button {
-            background-color: #a08f6d;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            padding: 12px 24px;
-            font-size: 16px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: background-color 0.2s;
-            display: inline-block;
-            text-decoration: none;
-            margin-top: 10px;
-        }
-        
-        .button:hover {
-            background-color: #8a7a5c;
-        }
-    </style>
+    .icon-container {
+      width: 80px;
+      height: 80px;
+      border-radius: 9999px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 0 auto 1.5rem;
+      font-size: 40px;
+    }
+
+    .bg-success { background-color: #d1fae5; color: #10b981; }
+    .bg-error { background-color: #fee2e2; color: #ef4444; }
+    .bg-pending { background-color: #fef3c7; color: #f59e0b; }
+
+    .status-title {
+      font-size: 1.5rem;
+      font-weight: 600;
+      color: #1f2937;
+      margin-bottom: 0.75rem;
+    }
+
+    .status-message {
+      font-size: 1rem;
+      color: #6b7280;
+      margin-bottom: 1.5rem;
+    }
+
+    .transaction-details {
+      background-color: #f9fafb;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      text-align: left;
+    }
+
+    .detail-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+      font-size: 0.875rem;
+    }
+
+    .detail-label {
+      color: #9ca3af;
+    }
+
+    .detail-value {
+      color: #374151;
+      font-weight: 500;
+    }
+
+    .button-group {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+    }
+
+    .button {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.5rem;
+      font-weight: 500;
+      font-size: 1rem;
+      text-decoration: none;
+      transition: background-color 0.2s ease;
+      cursor: pointer;
+    }
+
+    .button-home {
+      background-color: #8a7a5c;
+      color: white;
+    }
+
+    .button-home:hover {
+      background-color: #766b48;
+    }
+
+    .button-topup {
+      background-color: #e5e7eb;
+      color: #374151;
+    }
+
+    .button-topup:hover {
+      background-color: #d1d5db;
+    }
+  </style>
 </head>
+
 <body>
-    <div class="status-card">
-        <% 
-        let iconClass = "";
-        let statusIcon = "";
-        let bgClass = "";
-        
-        // กำหนดไอคอนและสีตามสถานะ
-        if (locals.status) {
-            switch(locals.status) {
-                case 'success':
-                    iconClass = "success-icon";
-                    bgClass = "success-bg";
-                    statusIcon = "fa-circle-check";
-                    break;
-                case 'error':
-                    iconClass = "error-icon";
-                    bgClass = "error-bg";
-                    statusIcon = "fa-circle-xmark";
-                    break;
-                case 'expired':
-                    iconClass = "error-icon";
-                    bgClass = "error-bg";
-                    statusIcon = "fa-circle-xmark";
-                    break;
-                case 'pending':
-                    iconClass = "pending-icon";
-                    bgClass = "pending-bg";
-                    statusIcon = "fa-clock";
-                    break;
-                case 'already processed':
-                    iconClass = "error-icon";
-                    bgClass = "error-bg";
-                    statusIcon = "fa-circle-xmark";
-                    break;
-                default:
-                    iconClass = "success-icon";
-                    bgClass = "success-bg";
-                    statusIcon = "fa-circle-check";
-            }
-        } else {
-            iconClass = "success-icon";
-            bgClass = "success-bg";
-            statusIcon = "fa-circle-check";
-        }
-        %>
-        
-        <div class="icon-container <%= bgClass %>">
-            <h1 class="fa-solid <%= statusIcon %> <%= iconClass %>"></h1>
-        </div>
-        
-        <h2 class="status-title">
-            <% if (locals.status === 'success') { %>
-                <%= locals.title || 'Complete' %>
-            <% } else if (locals.status === 'error' || locals.status === 'failed') { %>
-                <%= locals.title || 'Error' %>
-            <% } else if (locals.status === 'pending') { %>
-                <%= locals.title || 'In Progress' %>
-            <% } else if (locals.status === 'expired') { %>
-                <%= locals.title || 'Status' %>
-            <% } else { %>
-                <%= locals.title || 'Status' %>
-            <% } %>
-        </h2>
-        
-        <p class="status-message">
-            <% if (locals.status === 'success') { %>
-                <%= locals.message || 'Your cash has been top-up to your balance.' %>
-            <% } else if (locals.status === 'error' || locals.status === 'failed') { %>
-                <%= locals.message || 'The system occured error. Please Try again later.' %>
-            <% } else if (locals.status === 'missing') { %>
-                <%= locals.message || 'Your urls is broken.' %>
-            <% } else if (locals.status === 'expired') { %>
-                <%= locals.message || 'Your transaction is expired.' %>
-            <% } else if (locals.status === 'pending') { %>
-                <%= locals.message || 'Your transaction is in verify step from system. Please wait a moment.' %>
-            <% } else if (locals.status === 'already processed') { %>
-                <%= locals.message || 'Your transaction is already processed.' %>
-            <% } else { %>
-                <%= locals.message || 'Thanks you.' %>
-            <% } %>
-        </p>
-        
-        <% if (locals.showDetails && locals.transactionDetails) { %>
-        <div class="transaction-details">
-            <% Object.entries(locals.transactionDetails).forEach(([key, value]) => { %>
-            <div class="detail-item">
-                <span class="detail-label"><%= key %></span>
-                <span class="detail-value"><%= value %></span>
-            </div>
-            <% }); %>
-        </div>
-        <% } %>
-        
-        <a href="<%= locals.buttonLink || 'https://se-cedt-rentals.vercel.app/' %>" class="button">
-            <%= locals.buttonText || 'Back to Home' %>
-        </a>
+  <div id="motion-card" class="status-card">
+    <% 
+      let iconClass = "";
+      let statusIcon = "";
+      let bgClass = "";
+      
+      if (locals.status) {
+          switch(locals.status) {
+              case 'success':
+                  iconClass = "fa-circle-check";
+                  bgClass = "bg-success";
+                  break;
+              case 'error':
+              case 'expired':
+              case 'already processed':
+                  iconClass = "fa-circle-xmark";
+                  bgClass = "bg-error";
+                  break;
+              case 'pending':
+                  iconClass = "fa-clock";
+                  bgClass = "bg-pending";
+                  break;
+              default:
+                  iconClass = "fa-circle-check";
+                  bgClass = "bg-success";
+          }
+      } else {
+          iconClass = "fa-circle-check";
+          bgClass = "bg-success";
+      }
+    %>
+
+    <div class="icon-container <%= bgClass %>">
+      <i class="fa-solid <%= iconClass %>"></i>
     </div>
+
+    <h2 class="status-title">
+      <% if (locals.status === 'success') { %>
+          <%= locals.title || 'Complete' %>
+      <% } else if (locals.status === 'error' || locals.status === 'failed') { %>
+          <%= locals.title || 'Error' %>
+      <% } else if (locals.status === 'pending') { %>
+          <%= locals.title || 'Pending' %>
+      <% } else { %>
+          <%= locals.title || 'Status' %>
+      <% } %>
+    </h2>
+
+    <p class="status-message">
+      <% if (locals.status === 'success') { %>
+          <%= locals.message || 'Your cash has been added successfully.' %>
+      <% } else if (locals.status === 'error' || locals.status === 'failed') { %>
+          <%= locals.message || 'There was a problem with your transaction.' %>
+      <% } else if (locals.status === 'expired') { %>
+          <%= locals.message || 'Transaction expired.' %>
+      <% } else if (locals.status === 'pending') { %>
+          <%= locals.message || 'Transaction is still processing.' %>
+      <% } else { %>
+          <%= locals.message || 'Thank you.' %>
+      <% } %>
+    </p>
+
+    <% if (locals.showDetails && locals.transactionDetails) { %>
+      <div class="transaction-details">
+        <% Object.entries(locals.transactionDetails).forEach(([key, value]) => { %>
+          <div class="detail-item">
+            <span class="detail-label"><%= key %></span>
+            <span class="detail-value"><%= value %></span>
+          </div>
+        <% }); %>
+      </div>
+    <% } %>
+
+    <div class="button-group">
+      <a href="<%= locals.buttonTopup || '/topup' %>" class="button button-topup">
+        <i class="fa-solid fa-rotate-left"></i> Topup Again
+      </a>
+      <a href="<%= locals.buttonLink || '/' %>" class="button button-home">
+        <i class="fa-solid fa-house"></i> Home
+      </a>
+    </div>
+  </div>
 </body>
 </html>
