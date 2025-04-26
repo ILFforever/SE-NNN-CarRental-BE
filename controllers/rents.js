@@ -334,126 +334,10 @@ exports.getRent = asyncHandler(async (req, res, next) => {
   });
 });
 
-// @desc    Add rent
+// @desc    Add rent with optional deposit payment
 // @route   POST /api/v1/rents
 // @access  Private
 exports.addRent = asyncHandler(async (req, res, next) => {
-  // Allow admins to rent for others, otherwise, force req.user.id
-  if (req.user.role === "admin" && req.body.user) {
-    req.body.user = req.body.user; // Admin specifies user
-  } else {
-    req.body.user = req.user.id; // Regular users can only rent for themselves
-  }
-
-  // Fetch the user renting the car
-  const user = await User.findById(req.body.user);
-  if (!user) {
-    return res.status(404).json({ success: false, message: "User not found" });
-  }
-
-  // Check if the user already has 3 active/pending rentals (Admins can bypass this)
-  const existingRents = await Rent.find({
-    user: req.body.user,
-    status: { $in: ["active", "pending", "unpaid"] },
-  });
-
-  if (existingRents.length >= 3 && req.user.role !== "admin") {
-    return res.status(400).json({
-      success: false,
-      message: `User with ID ${req.body.user} already has 3 active rentals`,
-    });
-  }
-
-  const {
-    car: carId,
-    startDate,
-    returnDate,
-    price,
-    service,
-    discountAmount,
-  } = req.body;
-
-  if (!carId || !startDate || !returnDate || !price) {
-    return res.status(400).json({
-      success: false,
-      message: "Please provide a car ID, start date, end date, and price",
-    });
-  }
-
-  const car = await Car.findById(carId);
-  if (!car) {
-    return res
-      .status(404)
-      .json({ success: false, message: `No car with the ID ${carId}` });
-  }
-
-  // Check tier restriction (Admins bypass this check)
-  if (req.user.role !== "admin" && user.tier < car.tier) {
-    return res.status(400).json({
-      success: false,
-      message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})`,
-    });
-  }
-
-  const start = new Date(startDate).toISOString();
-  const end = new Date(returnDate).toISOString();
-  const duration =
-    Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)) + 1; // to match FE
-  if (duration <= 0) {
-    return res
-      .status(400)
-      .json({ success: false, message: "End date must be after start date" });
-  }
-
-  // Calculate service price if services are selected
-  let servicePrice = 0;
-  if (service && service.length > 0) {
-    // Fetch service details to get their rates
-    const services = await Service.find({ _id: { $in: service } });
-
-    // Calculate total service price based on duration and service type (daily vs one-time)
-    if (services.length > 0) {
-      servicePrice = services.reduce((total, svc) => {
-        // For daily services, multiply by duration; for one-time services, add just once
-        return total + (svc.daily ? svc.rate * duration : svc.rate);
-      }, 0);
-    }
-  }
-
-  // Calculate discount amount based on user tier, if not provided
-  const tierDiscountRate = [0, 5, 10, 15, 20][user.tier] || 0; // Tier discount percentage lookup
-  const calculatedDiscountAmount =
-    ((price + servicePrice) * tierDiscountRate) / 100 || 0;
-
-  // Use provided discountAmount or calculate it
-  const finalDiscountAmount =
-    discountAmount !== undefined ? discountAmount : calculatedDiscountAmount;
-
-  // Calculate final price
-  const finalPrice = price + servicePrice - finalDiscountAmount;
-
-  // Set values for the rent
-  req.body.price = price;
-  req.body.servicePrice = servicePrice;
-  req.body.discountAmount = finalDiscountAmount;
-  req.body.finalPrice = finalPrice;
-  req.body.startDate = start;
-  req.body.returnDate = end;
-
-  const rent = await Rent.create(req.body);
-  //await Car.findByIdAndUpdate(rent.car, { available: false });
-
-  res.status(201).json({
-    success: true,
-    totalPrice: finalPrice,
-    data: rent,
-  });
-});
-
-// @desc Add rent with 10% deposit payment
-// @route POST /api/v1/rents/with-deposit
-// @access Private
-exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
   try {
     // Allow admins to rent for others, otherwise, force req.user.id
     if (req.user.role === "admin" && req.body.user) {
@@ -465,9 +349,7 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
     // Fetch the user renting the car
     const user = await User.findById(req.body.user);
     if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "User not found" });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
     // Check if the user already has 3 active/pending rentals (Admins can bypass this)
@@ -490,6 +372,7 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
       price,
       service,
       discountAmount,
+      payDeposit = false, // Optional parameter to specify if deposit should be paid
     } = req.body;
 
     if (!carId || !startDate || !returnDate || !price) {
@@ -530,6 +413,7 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
     if (service && service.length > 0) {
       // Fetch service details to get their rates
       const services = await Service.find({ _id: { $in: service } });
+
       // Calculate total service price based on duration and service type (daily vs one-time)
       if (services.length > 0) {
         servicePrice = services.reduce((total, svc) => {
@@ -559,52 +443,94 @@ exports.addRentWithDeposit = asyncHandler(async (req, res, next) => {
     req.body.startDate = start;
     req.body.returnDate = end;
 
-    // Calculate 10% deposit amount and round to 2 decimal places
-    const depositAmount = Math.round(finalPrice * 0.1 * 100) / 100;
+    // Handle deposit payment if requested
+    let depositAmount = 0;
+    let creditTransaction = null;
+    
+    if (payDeposit) {
+      // Calculate 10% deposit amount and round to 2 decimal places
+      depositAmount = Math.round(finalPrice * 0.1 * 100) / 100;
 
-    // Check if user has enough credits for deposit
-    // Initialize credits if needed
-    if (user.credits === undefined) {
-      user.credits = 0;
-      await user.save();
-    }
+      // Check if user has enough credits for deposit
+      if (user.credits === undefined || user.credits < depositAmount) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient credits. You need ${depositAmount} credits to pay the deposit for this reservation.`,
+        });
+      }
 
-    if (user.credits < depositAmount) {
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient credits. You need ${depositAmount} credits to pay the deposit for this reservation.`,
+      // Create the rental record first to get the rental ID
+      const rent = await Rent.create(req.body);
+      
+      // Use the credits controller's useCredits function
+      const creditsController = require('../controllers/credits');
+      
+      // Create a mock request for the useCredits function
+      const creditReq = {
+        user: { id: user._id },
+        body: {
+          amount: depositAmount,
+          description: `10% deposit for rental #${rent._id} - ${car.brand} ${car.model}`,
+          reference: `rental_deposit_${rent._id}`
+        }
+      };
+
+      // Create a mock response that captures the result
+      let creditResult = null;
+      const creditRes = {
+        status: (code) => ({
+          json: (data) => {
+            creditResult = { status: code, ...data };
+            return creditRes;
+          }
+        })
+      };
+
+      // Call useCredits from the credits controller
+      await creditsController.useCredits(creditReq, creditRes, (err) => {
+        if (err) throw err;
+      });
+
+      // Check if credit deduction was successful
+      if (!creditResult || !creditResult.success) {
+        // If credit deduction failed, delete the rental and return error
+        await Rent.findByIdAndDelete(rent._id);
+        return res.status(creditResult?.status || 400).json({
+          success: false,
+          message: creditResult?.message || 'Failed to process deposit payment'
+        });
+      }
+
+      // Update the rental with deposit information
+      rent.depositAmount = depositAmount;
+      rent.depositTransaction = creditResult.data.transaction._id;
+      await rent.save();
+
+      // Return the rental with deposit information
+      res.status(201).json({
+        success: true,
+        totalPrice: finalPrice,
+        depositAmount: depositAmount,
+        remainingCredits: creditResult.data.credits,
+        transaction: creditResult.data.transaction,
+        data: rent
+      });
+
+    } else {
+      // No deposit payment - create rental normally
+      const rent = await Rent.create(req.body);
+      
+      res.status(201).json({
+        success: true,
+        totalPrice: finalPrice,
+        data: rent
       });
     }
 
-    // Create the rental record with deposit information
-    req.body.depositAmount = depositAmount;
-    const rent = await Rent.create(req.body);
-
-    if (!rent) {
-      return res.status(500).json({
-        success: false,
-        message: "Failed to create reservation",
-      });
-    }
-
-    // Update user's credits (deduct deposit)
-    const updatedUser = await User.findByIdAndUpdate(
-      user._id,
-      { $inc: { credits: -depositAmount } },
-      { new: true, runValidators: true }
-    );
-
-    res.status(201).json({
-      success: true,
-      totalPrice: finalPrice,
-      depositAmount: depositAmount,
-      remainingCredits: updatedUser.credits,
-      data: rent,
-    });
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message,
+      message: error.message
     });
   }
 });

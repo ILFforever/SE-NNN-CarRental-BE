@@ -70,8 +70,4 @@ router
     .route('/:id/rate')
     .post(rateProvider);
 
-router  
-    .route('/with-deposit')
-    .post(addRentWithDeposit);
-
 module.exports = router;
