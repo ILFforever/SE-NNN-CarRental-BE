@@ -250,7 +250,7 @@ exports.getQrCodeStatus = asyncHandler(async (req, res) => {
     return res.status(200).json(topupDetails);
 });
 
-// @desc    Get entity's current credit balance and transaction history
+// @desc    Get entity's current credit balance (WITHOUT transaction history)
 // @route   GET /api/v1/credits
 // @access  Private
 exports.getCredits = asyncHandler(async (req, res) => {
@@ -260,19 +260,11 @@ exports.getCredits = asyncHandler(async (req, res) => {
         // Get the authenticated entity
         const entity = await validateAndGetEntity(auth.id, auth.model);
         
-        // Get the entity's transaction history from the Transaction model
-        // Use entity type field for flexible querying
-        const transactions = await Transaction.find({ 
-            [auth.type]: auth.id 
-        })
-            .sort({ transactionDate: -1 })
-            .limit(50); // Get up to 50 most recent transactions
-        
+        // Return only the credit balance, not the transaction history
         res.status(200).json({
             success: true,
             data: {
-                credits: entity.credits || 0, // Default to 0 if credits field doesn't exist
-                transactions
+                credits: entity.credits || 0 // Default to 0 if credits field doesn't exist
             }
         });
     } catch (error) {
@@ -1133,12 +1125,10 @@ exports.getTransactionById = asyncHandler(async (req, res) => {
     }
 });
 
-/**
- * Get entity's transaction history
- * @route   GET /api/v1/credits/history
- * @access  Private
- */
-exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
+ //Get entity's transaction history
+ // @route   GET /api/v1/credits/history
+ // @access  Private
+ exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
     try {
         const auth = getAuthEntity(req);
         
@@ -1220,14 +1210,16 @@ exports.getUserTransactionHistory = asyncHandler(async (req, res) => {
             });
         }
         
-        // Execute query with pagination and joins
+        // Execute query with pagination and joins - ADD strictPopulate: false
         const transactions = await Transaction.find(query)
             .populate({
                 path: 'rental',
                 select: 'startDate returnDate status finalPrice car',
+                strictPopulate: false,
                 populate: {
                     path: 'car',
-                    select: 'brand model license_plate'
+                    select: 'brand model license_plate',
+                    strictPopulate: false
                 }
             })
             .sort(sort)
