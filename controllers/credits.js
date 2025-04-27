@@ -1401,7 +1401,6 @@ exports.getTransactionById = asyncHandler(async (req, res) => {
 // @desc    Transfer credits from user to provider for rental payment
 // @route   POST /api/v1/credits/transfer-to-provider/:rentalId
 // @access  Private
-
 exports.transferCreditsToProvider = asyncHandler(async (req, res) => {
     let session = null;
     

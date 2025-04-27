@@ -13,7 +13,8 @@ const {
     getUserTransactionHistory,
     topupQrCode,
     receiveQrCode,
-    getQrCodeStatus
+    getQrCodeStatus,
+    transferCreditsToProvider 
 } = require('../controllers/credits');
 
 const { protect, authorize } = require('../middleware/auth');
