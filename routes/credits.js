@@ -32,6 +32,9 @@ router.post('/add', addCredits);
 router.post('/use', useCredits);
 router.post('/pay-rental/:rentalId', payRentalWithCredits);
 
+// Transfer credits to provider for rental payment
+router.post('/transfer-to-provider/:rentalId', transferCreditsToProvider);
+
 // Topup Endpoints
 router.post('/topup', topupQrCode);
 
