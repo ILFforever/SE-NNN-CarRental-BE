@@ -1,17 +1,37 @@
-const swaggerJSDoc = require('swagger-jsdoc');
+const swaggerJsDoc = require('swagger-jsdoc');
 
-const options = {
+const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'CEDT-RENTALS API',
+      title: 'Car Rental API',
       version: '1.0.0',
-      description: 'Basic api documentation',
+      description: 'Car Rental API documentation',
+    },
+    servers: [
+      {
+        url: process.env.NODE_ENV === 'production' 
+          ? 'https://se-nnn-carrental-be.fly.dev/api/v1'
+          : `http://localhost:${process.env.PORT || 5000}/api/v1`,
+      },
+    ],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: 'http',
+          scheme: 'bearer',
+          bearerFormat: 'JWT',
+        },
+      },
     },
   },
-  apis: ['./routes/*.js'], // Path to the API routes files
+  apis: [
+    './routes/*.js',
+    './controllers/*.js',
+    './docs/*.js'
+  ],
 };
 
-const swaggerSpec = swaggerJSDoc(options);
+const swaggerSpec = swaggerJsDoc(swaggerOptions);
 
 module.exports = swaggerSpec;
