@@ -62,7 +62,7 @@ const UserSchema = new mongoose.Schema({
 //Encrypt password using bcrypt
 UserSchema.pre('save', function (next) {
     this.total_spend = this.total_spend || 0;  // Ensure total_spend is not undefined
-    this.tier = Math.floor(this.total_spend / 10000);
+this.tier = Math.floor(this.total_spend / 10000);
     next();
 });
 
