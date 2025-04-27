@@ -39,6 +39,8 @@
  *   get:
  *     summary: Get all services
  *     tags: [Services]
+ *     security:
+ *     - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of all services
@@ -57,6 +59,8 @@
  *   post:
  *     summary: Create a new service
  *     tags: [Services]
+ *     security:
+ *     - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -97,6 +101,8 @@
  *   get:
  *     summary: Get services for a specific car
  *     tags: [Services]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: carId
@@ -124,6 +130,8 @@
  *   put:
  *     summary: Update a service
  *     tags: [Services]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id

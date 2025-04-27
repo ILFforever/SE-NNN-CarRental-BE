@@ -81,6 +81,8 @@
  * /rents:
  *   get:
  *     summary: Get user's rentals
+ *     security:
+ *     - bearerAuth: []
  *     tags: [Rentals]
  *     parameters:
  *       - in: query
@@ -132,6 +134,8 @@
  *   post:
  *     summary: Create a new rental
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -185,6 +189,8 @@
  *   get:
  *     summary: Get a specific rental by ID
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -207,6 +213,8 @@
  *   put:
  *     summary: Update a rental
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -236,6 +244,8 @@
  *   put:
  *     summary: Complete a rental (return car)
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -273,6 +283,8 @@
  *   put:
  *     summary: Confirm a rental (change status from pending to active)
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -296,6 +308,8 @@
  *   put:
  *     summary: Cancel a rental
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -325,6 +339,8 @@
  *   post:
  *     summary: Rate the car provider for a rental
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -365,6 +381,8 @@
  *   put:
  *     summary: Mark a rental as paid (change from unpaid to completed)
  *     tags: [Rentals]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
