@@ -742,233 +742,231 @@ exports.adminManageCredits = asyncHandler(async (req, res) => {
     }
   }
 });
+
 // @desc    Pay for rental using credits and transfer to provider
 // @route   POST /api/v1/credits/pay-rental/:rentalId
 // @access  Private
 exports.payRentalWithCredits = asyncHandler(async (req, res) => {
-  let session = null;
-
-  try {
-    const { rentalId } = req.params;
-    const auth = getAuthEntity(req);
-
-    // Validate rental ID
-    if (!rentalId || !mongoose.Types.ObjectId.isValid(rentalId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Valid rental ID is required",
-      });
-    }
-
-    // Start a transaction session
-    session = await mongoose.startSession();
-    session.startTransaction();
-
-    // Find the rental with car and provider data
-    const rental = await Rent.findById(rentalId)
-      .populate("car")
-      .session(session);
-
-    if (!rental) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Rental not found",
-      });
-    }
-
-    // Check if car and provider exist
-    if (!rental.car) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Car information not found for this rental",
-      });
-    }
-
-    // Get provider ID from car
-    const providerId = rental.car.provider_id;
-    if (!providerId) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Provider information not found for this rental",
-      });
-    }
-
-    // Check authorization based on entity type
-    if (auth.type === "user" || auth.type === "admin") {
-      // Check if the rental belongs to the current user
-      if (rental.user.toString() !== auth.id) {
-        await session.abortTransaction();
-        return res.status(403).json({
-          success: false,
-          message: "You are not authorized to pay for this rental",
+    let session = null;
+    
+    try {
+        const { rentalId } = req.params;
+        const auth = getAuthEntity(req);
+        
+        // Validate rental ID
+        if (!rentalId || !mongoose.Types.ObjectId.isValid(rentalId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid rental ID is required'
+            });
+        }
+        
+        // Start a transaction session
+        session = await mongoose.startSession();
+        session.startTransaction();
+        
+        // Find the rental with car and provider data
+        const rental = await Rent.findById(rentalId)
+            .populate('car')
+            .session(session);
+        
+        if (!rental) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'Rental not found'
+            });
+        }
+        
+        // Check if car and provider exist
+        if (!rental.car) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'Car information not found for this rental'
+            });
+        }
+        
+        // Get provider ID from car
+        const providerId = rental.car.provider_id;
+        if (!providerId) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'Provider information not found for this rental'
+            });
+        }
+        
+        // Check authorization based on entity type
+        if (auth.type === 'user' || auth.type === 'admin') {
+            // Check if the rental belongs to the current user
+            if (rental.user.toString() !== auth.id) {
+                await session.abortTransaction();
+                return res.status(403).json({
+                    success: false,
+                    message: 'You are not authorized to pay for this rental'
+                });
+            }
+        } else if (auth.type === 'provider') {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not authorized'
+            });
+        }
+        
+        // Check if the rental is in 'unpaid' status
+        if (rental.status !== 'unpaid') {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: `This rental cannot be paid (current status: ${rental.status})`
+            });
+        }
+        
+        // Calculate the amount to be paid and round to 2 decimal places
+        let amountToPay = rental.finalPrice || 
+                          (rental.price + (rental.servicePrice || 0) - 
+                           (rental.discountAmount || 0) + 
+                           (rental.additionalCharges ? rental.additionalCharges.lateFee || 0 : 0));
+        
+        // Round to 2 decimal places to avoid floating point precision issues
+        amountToPay = Math.round(amountToPay * 100) / 100;
+        
+        // Check if user has enough credits
+        const user = await User.findById(auth.id).session(session);
+        
+        if (!user) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        
+        // Initialize credits if needed
+        if (user.credits === undefined) {
+            user.credits = 0;
+            await user.save({ session });
+        }
+        
+        if (user.credits < amountToPay) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: `Insufficient credits. You need ${amountToPay} credits to pay for this rental.`
+            });
+        }
+        
+        // Get provider
+        const provider = await Car_Provider.findById(providerId).session(session);
+        
+        if (!provider) {
+            await session.abortTransaction();
+            return res.status(404).json({
+                success: false,
+                message: 'Provider not found'
+            });
+        }
+        
+        // Initialize provider credits if needed
+        if (provider.credits === undefined) {
+            provider.credits = 0;
+            await provider.save({ session });
+        }
+        
+        // 1. Deduct amount from user
+        const updatedUser = await User.findByIdAndUpdate(
+            auth.id,
+            { $inc: { credits: -amountToPay } },
+            { new: true, runValidators: true, session }
+        );
+        
+        // 2. Add amount to provider
+        const updatedProvider = await Car_Provider.findByIdAndUpdate(
+            providerId,
+            { $inc: { credits: amountToPay } },
+            { new: true, runValidators: true, session }
+        );
+        
+        // 3. Create payment transaction for user (negative amount)
+        const userTransaction = await Transaction.create(
+            [{
+                amount: -amountToPay,
+                description: `Payment to ${provider.name} for rental #${rental._id}`,
+                type: 'payment',
+                reference: rental._id.toString(),
+                status: 'completed',
+                user: auth.id,
+                metadata: {
+                    rentalDetails: {
+                        startDate: rental.startDate,
+                        returnDate: rental.returnDate,
+                        finalPrice: amountToPay,
+                        providerId: providerId
+                    }
+                }
+            }],
+            { session }
+        );
+        
+        // 4. Create receipt transaction for provider (positive amount)
+        // It seems the Transaction model requires a user field even for provider transactions
+        const providerTransaction = await Transaction.create(
+            [{
+                amount: amountToPay,
+                description: `Payment from ${user.name} for rental #${rental._id}`,
+                type: 'deposit',
+                reference: rental._id.toString(),
+                status: 'completed',
+                provider: providerId,
+                user: auth.id, // Include the user ID to satisfy the schema requirement
+                metadata: {
+                    rentalDetails: {
+                        startDate: rental.startDate,
+                        returnDate: rental.returnDate,
+                        finalPrice: amountToPay,
+                        userId: auth.id
+                    }
+                }
+            }],
+            { session }
+        );
+        
+        // 5. Update rental status to 'completed'
+        rental.status = 'completed';
+        await rental.save({ session });
+        
+        // Commit transaction
+        await session.commitTransaction();
+        
+        res.status(200).json({
+            success: true,
+            data: {
+                rentalId: rental._id,
+                amount: amountToPay,
+                remainingCredits: updatedUser.credits,
+                rentalStatus: rental.status,
+                userTransaction: userTransaction[0],
+                providerTransaction: providerTransaction[0]
+            },
+            message: `Rental paid successfully with ${amountToPay} credits. Payment transferred to provider.`
         });
-      }
-    } else if (auth.type === "provider") {
-      return res.status(403).json({
-        success: false,
-        message: "You are not authorized",
-      });
+        
+    } catch (error) {
+        // Abort transaction on error
+        if (session) {
+            await session.abortTransaction();
+        }
+        
+        res.status(400).json({
+            success: false,
+            message: error.message
+        });
+    } finally {
+        if (session) {
+            session.endSession();
+        }
     }
-
-    // Check if the rental is in 'unpaid' status
-    if (rental.status !== "unpaid") {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: `This rental cannot be paid (current status: ${rental.status})`,
-      });
-    }
-
-    // Calculate the amount to be paid and round to 2 decimal places
-    let amountToPay =
-      rental.finalPrice ||
-      rental.price +
-        (rental.servicePrice || 0) -
-        (rental.discountAmount || 0) +
-        (rental.additionalCharges ? rental.additionalCharges.lateFee || 0 : 0);
-
-    // Round to 2 decimal places to avoid floating point precision issues
-    amountToPay = Math.round(amountToPay * 100) / 100;
-
-    // Check if user has enough credits
-    const user = await User.findById(auth.id).session(session);
-
-    if (!user) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    // Initialize credits if needed
-    if (user.credits === undefined) {
-      user.credits = 0;
-      await user.save({ session });
-    }
-
-    if (user.credits < amountToPay) {
-      await session.abortTransaction();
-      return res.status(400).json({
-        success: false,
-        message: `Insufficient credits. You need ${amountToPay} credits to pay for this rental.`,
-      });
-    }
-
-    // Get provider
-    const provider = await Car_Provider.findById(providerId).session(session);
-
-    if (!provider) {
-      await session.abortTransaction();
-      return res.status(404).json({
-        success: false,
-        message: "Provider not found",
-      });
-    }
-
-    // Initialize provider credits if needed
-    if (provider.credits === undefined) {
-      provider.credits = 0;
-      await provider.save({ session });
-    }
-
-    // 1. Deduct amount from user
-    const updatedUser = await User.findByIdAndUpdate(
-      auth.id,
-      { $inc: { credits: -amountToPay } },
-      { new: true, runValidators: true, session }
-    );
-
-    // 2. Add amount to provider
-    const updatedProvider = await Car_Provider.findByIdAndUpdate(
-      providerId,
-      { $inc: { credits: amountToPay } },
-      { new: true, runValidators: true, session }
-    );
-
-    // 3. Create payment transaction for user (negative amount)
-    const userTransaction = await Transaction.create(
-      [
-        {
-          amount: -amountToPay,
-          description: `Payment to ${provider.name} for rental #${rental._id}`,
-          type: "payment",
-          reference: rental._id.toString(),
-          status: "completed",
-          user: auth.id,
-          metadata: {
-            rentalDetails: {
-              startDate: rental.startDate,
-              returnDate: rental.returnDate,
-              finalPrice: amountToPay,
-              providerId: providerId,
-            },
-          },
-        },
-      ],
-      { session }
-    );
-
-    // 4. Create receipt transaction for provider (positive amount)
-    const providerTransaction = await Transaction.create(
-      [
-        {
-          amount: amountToPay,
-          description: `Payment from ${user.name} for rental #${rental._id}`,
-          type: "deposit",
-          reference: rental._id.toString(),
-          status: "completed",
-          provider: providerId,
-          metadata: {
-            rentalDetails: {
-              startDate: rental.startDate,
-              returnDate: rental.returnDate,
-              finalPrice: amountToPay,
-              userId: auth.id,
-            },
-          },
-        },
-      ],
-      { session }
-    );
-
-    // 5. Update rental status to 'completed'
-    rental.status = "completed";
-    await rental.save({ session });
-
-    // Commit transaction
-    await session.commitTransaction();
-
-    res.status(200).json({
-      success: true,
-      data: {
-        rentalId: rental._id,
-        amount: amountToPay,
-        remainingCredits: updatedUser.credits,
-        rentalStatus: rental.status,
-        userTransaction: userTransaction[0],
-        providerTransaction: providerTransaction[0],
-      },
-      message: `Rental paid successfully with ${amountToPay} credits. Payment transferred to provider.`,
-    });
-  } catch (error) {
-    // Abort transaction on error
-    if (session) {
-      await session.abortTransaction();
-    }
-
-    res.status(400).json({
-      success: false,
-      message: error.message,
-    });
-  } finally {
-    if (session) {
-      session.endSession();
-    }
-  }
 });
 
 // @desc    Get all transaction details
