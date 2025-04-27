@@ -43,6 +43,8 @@
  *   get:
  *     summary: Get current user's credit balance
  *     tags: [Credits]
+ *     security:
+ *     - bearerAuth: []
  *     responses:
  *       200:
  *         description: User's current credit balance
@@ -62,6 +64,8 @@
  * /credits/add:
  *   post:
  *     summary: Add credits to user/provider account
+ *     security:
+ *     - bearerAuth: []
  *     tags: [Credits]
  *     requestBody:
  *       required: true
@@ -101,6 +105,8 @@
  *   post:
  *     summary: Use credits for payment
  *     tags: [Credits]
+ *     security:
+ *     - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -138,6 +144,8 @@
  * /credits/pay-rental/{rentalId}:
  *   post:
  *     summary: Pay for a rental using credits
+ *     security:
+ *     - bearerAuth: []
  *     tags: [Credits]
  *     parameters:
  *       - in: path
@@ -172,6 +180,8 @@
  * /credits/history:
  *   get:
  *     summary: Get user's transaction history
+ *     security:
+ *     - bearerAuth: []
  *     tags: [Credits]
  *     parameters:
  *       - in: query
@@ -285,6 +295,8 @@
  * /credits/topup:
  *   post:
  *     summary: Generate QR code for top-up
+ *     security:
+ *     - bearerAuth: []
  *     tags: [Credits]
  *     requestBody:
  *       required: true
@@ -315,7 +327,48 @@
  *                   type: string
  *                 url:
  *                   type: string
- * 
+
+ * /credits/topup/receive:
+ *   get:
+ *     summary: Process QR code payment for credit top-up
+ *     tags: [Credits]
+ *     parameters:
+ *       - in: query
+ *         name: trans_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Transaction ID from QR code
+ *     responses:
+ *       200:
+ *         description: Payment successfully processed
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *               description: Rendered status page for successful transaction
+ *       400:
+ *         description: Transaction already processed or invalid
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *               description: Rendered error status page
+ *       404:
+ *         description: Transaction expired or not found
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *               description: Rendered error status page
+ *       500:
+ *         description: Server error during transaction processing
+ *         content:
+ *           text/html:
+ *             schema:
+ *               type: string
+ *               description: Rendered error status page
+ *
  * /credits/topup/status:
  *   get:
  *     summary: Check QR code top-up transaction status

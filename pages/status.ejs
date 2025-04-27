@@ -174,7 +174,7 @@
       <% } else if (locals.status === 'pending') { %>
           <%= locals.title || 'Pending' %>
       <% } else { %>
-          <%= locals.title || 'Status' %>
+          <%= locals.title || 'dStatus expire' %>
       <% } %>
     </h2>
 
@@ -188,7 +188,7 @@
       <% } else if (locals.status === 'pending') { %>
           <%= locals.message || 'Transaction is still processing.' %>
       <% } else { %>
-          <%= locals.message || 'Thank you.' %>
+          <%= locals.message || 'This transaction has already been completed' %>
       <% } %>
     </p>
 
