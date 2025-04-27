@@ -16,39 +16,6 @@
  *           enum: ['pending', 'completed', 'expired']
  *           description: Status of the QR code transaction
  * 
- * /qrcode/topup:
- *   get:
- *     summary: Generate QR code for top-up
- *     tags: [QR Code]
- *     parameters:
- *       - in: query
- *         name: uid
- *         required: true
- *         schema:
- *           type: string
- *         description: User ID
- *       - in: query
- *         name: cash
- *         required: true
- *         schema:
- *           type: number
- *         description: Amount to top up
- *     responses:
- *       200:
- *         description: QR code generated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 message:
- *                   type: string
- *                 url:
- *                   type: string
- *                   description: URL for the generated QR code
- * 
  * /qrcode/recieve:
  *   get:
  *     summary: Receive payment via QR code

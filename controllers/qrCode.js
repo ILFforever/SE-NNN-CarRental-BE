@@ -2,37 +2,6 @@ const asyncHandler = require("express-async-handler");
 const { generateQRHash } = require("../utility/generateHash");
 const { redis } = require("../config/redis");
 
-exports.topup = asyncHandler(async (req, res) => {
-  const { uid, cash } = req.query;
-  if (!uid || !cash) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Missing uid or cash query parameter" });
-  }
-
-  try {
-    const hash = await generateQRHash(uid, cash);
-
-    await redis.set(
-      hash,
-      JSON.stringify({ uid, cash, status: "pending" }),
-      "EX",
-      60 * 5
-    );
-    
-    return res.status(200).json({
-      success: true,
-      message: "QR code generated successfully",
-      url: "https://droplet.ngixx.in.th/api/v1/qrcode/" + hash,
-    })
-  } catch (error) {
-    console.error("Error generating QR code:", error);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to generate QR code" });
-  }
-});
-
 exports.recieve = asyncHandler(async (req, res) => {
   const { trans_id } = req.query;
   if (!trans_id) {
