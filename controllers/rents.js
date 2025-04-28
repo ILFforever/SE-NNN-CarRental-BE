@@ -544,67 +544,86 @@ exports.addRent = asyncHandler(async (req, res, next) => {
 // @route PUT /api/v1/rents/:id
 // @access Private
 exports.updateRent = asyncHandler(async (req, res, next) => {
-  let rent = await Rent.findById(req.params.id).populate({
-    path: "car",
-    select: "provider_id",
-  });
-
-  if (!rent) {
-    return res.status(404).json({
-      success: false,
-      message: `No rent with the id of ${req.params.id}`,
+  try {
+    let rent = await Rent.findById(req.params.id).populate({
+      path: "car",
+      select: "provider_id dailyRate",
     });
-  }
 
-  // ตรวจสอบสิทธิ์
-  let isAuthorized = false;
-  if (req.user) {
-    if (rent.user.toString() === req.user.id) {
-      isAuthorized = true;
-    } else if (req.user.role === "admin") {
-      isAuthorized = true;
+    if (!rent) {
+      return res.status(404).json({
+        success: false,
+        message: `No rent with the id of ${req.params.id}`,
+      });
     }
-  }
 
-  if (req.provider) {
-    if (typeof rent.car === "object" && rent.car.provider_id) {
-      if (rent.car.provider_id.toString() === req.provider.id) {
+    // Check authorization for users
+    let isAuthorized = false;
+    if (req.user) {
+      // Regular users can only update their own rentals
+      if (rent.user.toString() === req.user.id) {
         isAuthorized = true;
       }
-    } else if (typeof rent.car === "string") {
-      const car = await Car.findById(rent.car);
-      if (car && car.provider_id.toString() === req.provider.id) {
+      // Admins can update any rental
+      else if (req.user.role === "admin") {
         isAuthorized = true;
       }
     }
-  }
 
-  if (!isAuthorized) {
-    return res.status(401).json({
+    // Check authorization for providers - they can update rentals for their cars
+    if (req.provider) {
+      // If car is populated, check directly
+      if (typeof rent.car === "object" && rent.car.provider_id) {
+        if (rent.car.provider_id.toString() === req.provider.id) {
+          isAuthorized = true;
+        }
+      }
+      // If car is just an ID, we need to fetch the car
+      else if (typeof rent.car === "string") {
+        const car = await Car.findById(rent.car);
+        if (car && car.provider_id.toString() === req.provider.id) {
+          isAuthorized = true;
+        }
+      }
+    }
+
+    if (!isAuthorized) {
+      return res.status(401).json({
+        success: false,
+        message: `Not authorized to update this rental`,
+      });
+    }
+
+    // Log what we're receiving
+    console.log("Received update data:", req.body);
+
+    // Store time values directly
+    const updateData = { ...req.body };
+
+    // Update the rent with new data - เป็นอ็อบเจกต์เพลนๆ ไม่ใช้ runValidators ที่อาจก่อให้เกิดปัญหา
+    rent = await Rent.findByIdAndUpdate(req.params.id, updateData, {
+      new: true,
+    });
+
+    if (!rent) {
+      return res.status(500).json({
+        success: false,
+        message: `Failed to update rent with id ${req.params.id}`,
+      });
+    }
+
+    // ส่งข้อมูลที่อัพเดทกลับไปให้ไคลเอนต์
+    res.status(200).json({
+      success: true,
+      data: rent,
+    });
+  } catch (error) {
+    console.error("Error in updateRent:", error);
+    res.status(500).json({
       success: false,
-      message: `Not authorized to update this rental`,
+      message: error.message || "Internal Server Error",
     });
   }
-
-  // เก็บข้อมูลเวลาจากคำขอโดยตรง
-  if (req.body.pickupTime) {
-    req.body.pickupTime = req.body.pickupTime;
-  }
-
-  if (req.body.returnTime) {
-    req.body.returnTime = req.body.returnTime;
-  }
-
-  // อัพเดทข้อมูลโดยตรง โดยไม่คำนวณระยะเวลาใหม่
-  rent = await Rent.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  });
-
-  res.status(200).json({
-    success: true,
-    data: rent,
-  });
 });
 
 // @desc    Delete rent
