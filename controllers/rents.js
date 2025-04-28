@@ -405,10 +405,10 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     }
 
     // Combine date and time using dayjs functions
-    const start = exports.combineDateTime(startDate, pickupTime);
-    const end = exports.combineDateTime(returnDate, returnTime);
+    const start = combineDateTime(startDate, pickupTime);
+    const end = combineDateTime(returnDate, returnTime);
 
-    const duration = exports.calculateRentalDuration(start, end);
+    const duration = calculateRentalDuration(start, end);
     if (duration <= 0) {
       return res
         .status(400)
@@ -549,14 +549,14 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
       path: "car",
       select: "provider_id dailyRate",
     });
-
+    
     if (!rent) {
       return res.status(404).json({
         success: false,
         message: `No rent with the id of ${req.params.id}`,
       });
     }
-
+    
     // Check authorization for users
     let isAuthorized = false;
     if (req.user) {
@@ -569,7 +569,7 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
         isAuthorized = true;
       }
     }
-
+    
     // Check authorization for providers - they can update rentals for their cars
     if (req.provider) {
       // If car is populated, check directly
@@ -586,33 +586,78 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
         }
       }
     }
-
+    
     if (!isAuthorized) {
       return res.status(401).json({
         success: false,
         message: `Not authorized to update this rental`,
       });
     }
-
+    
     // Log what we're receiving
     console.log("Received update data:", req.body);
-
-    // Store time values directly
+    
+    // Create update data object
     const updateData = { ...req.body };
-
-    // Update the rent with new data - เป็นอ็อบเจกต์เพลนๆ ไม่ใช้ runValidators ที่อาจก่อให้เกิดปัญหา
-    rent = await Rent.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
+    
+    // Handle date and time integration for startDate
+    if (req.body.startDate && req.body.pickupTime) {
+      const startDateObj = new Date(req.body.startDate);
+      const [pickupHours, pickupMinutes] = req.body.pickupTime.split(':').map(Number);
+      
+      // Validate hours and minutes
+      if (!isNaN(pickupHours) && !isNaN(pickupMinutes)) {
+        startDateObj.setUTCHours(pickupHours, pickupMinutes, 0, 0);
+        updateData.startDate = startDateObj.toISOString();
+      }
+      
+      // Store the pickupTime separately as well
+      updateData.pickupTime = req.body.pickupTime;
+    }
+    
+    // Handle date and time integration for returnDate
+    if (req.body.returnDate && req.body.returnTime) {
+      const returnDateObj = new Date(req.body.returnDate);
+      const [returnHours, returnMinutes] = req.body.returnTime.split(':').map(Number);
+      
+      // Validate hours and minutes
+      if (!isNaN(returnHours) && !isNaN(returnMinutes)) {
+        returnDateObj.setUTCHours(returnHours, returnMinutes, 0, 0);
+        updateData.returnDate = returnDateObj.toISOString();
+      }
+      
+      // Store the returnTime separately as well
+      updateData.returnTime = req.body.returnTime;
+    }
+    
+    console.log("Processed update data:", {
+      startDate: updateData.startDate,
+      pickupTime: updateData.pickupTime,
+      returnDate: updateData.returnDate,
+      returnTime: updateData.returnTime
     });
-
+    
+    // Update the rent with new data
+    rent = await Rent.findByIdAndUpdate(req.params.id, updateData, {
+      new: true
+    });
+    
     if (!rent) {
       return res.status(500).json({
         success: false,
-        message: `Failed to update rent with id ${req.params.id}`,
+        message: `Failed to update rent with id ${req.params.id}`
       });
     }
-
-    // ส่งข้อมูลที่อัพเดทกลับไปให้ไคลเอนต์
+    
+    // Check the updated values
+    console.log("Updated rent:", {
+      startDate: rent.startDate,
+      pickupTime: rent.pickupTime,
+      returnDate: rent.returnDate,
+      returnTime: rent.returnTime
+    });
+    
+    // Send the updated rent back to the client
     res.status(200).json({
       success: true,
       data: rent,
