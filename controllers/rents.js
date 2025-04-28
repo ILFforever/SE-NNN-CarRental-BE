@@ -337,7 +337,6 @@ exports.getRent = asyncHandler(async (req, res, next) => {
     data: populatedRent,
   });
 });
-
 // @desc    Add rent with optional deposit payment
 // @route   POST /api/v1/rents
 // @access  Private
@@ -403,11 +402,11 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       });
     }
     
-    // Combine date and time for more accurate duration calculation
-    const start = combineDateTime(startDate, pickupTime);
-    const end = combineDateTime(returnDate, returnTime);
+    // Combine date and time using dayjs functions
+    const start = exports.combineDateTime(startDate, pickupTime);
+    const end = exports.combineDateTime(returnDate, returnTime);
     
-    const duration = calculateRentalDuration(start, end);
+    const duration = exports.calculateRentalDuration(start, end);
     if (duration <= 0) {
       return res
         .status(400)
@@ -434,15 +433,15 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     // Calculate final price
     const finalPrice = price + servicePrice - finalDiscountAmount;
 
-    // Set values for the rent
+    // Set values for the rent - convert dayjs objects to ISO strings for storage
     req.body.price = price;
     req.body.servicePrice = servicePrice;
     req.body.discountAmount = finalDiscountAmount;
     req.body.finalPrice = finalPrice;
-    req.body.startDate = start;
-    req.body.returnDate = end;
-    req.body.pickupTime = pickupTime;    // Store pickupTime in the rent document
-    req.body.returnTime = returnTime;    // Store returnTime in the rent document
+    req.body.startDate = start.toISOString();
+    req.body.returnDate = end.toISOString();
+    req.body.pickupTime = pickupTime;
+    req.body.returnTime = returnTime;
 
     // Handle deposit payment if requested
     let depositAmount = 0;
