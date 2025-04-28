@@ -539,6 +539,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     });
   }
 });
+
 // @desc Update rent
 // @route PUT /api/v1/rents/:id
 // @access Private
@@ -555,29 +556,22 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
     });
   }
 
-  // Check authorization for users
+  // ตรวจสอบสิทธิ์
   let isAuthorized = false;
   if (req.user) {
-    // Regular users can only update their own rentals
     if (rent.user.toString() === req.user.id) {
       isAuthorized = true;
-    }
-    // Admins can update any rental
-    else if (req.user.role === "admin") {
+    } else if (req.user.role === "admin") {
       isAuthorized = true;
     }
   }
 
-  // Check authorization for providers - they can update rentals for their cars
   if (req.provider) {
-    // If car is populated, check directly
     if (typeof rent.car === "object" && rent.car.provider_id) {
       if (rent.car.provider_id.toString() === req.provider.id) {
         isAuthorized = true;
       }
-    }
-    // If car is just an ID, we need to fetch the car
-    else if (typeof rent.car === "string") {
+    } else if (typeof rent.car === "string") {
       const car = await Car.findById(rent.car);
       if (car && car.provider_id.toString() === req.provider.id) {
         isAuthorized = true;
@@ -592,46 +586,16 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
     });
   }
 
-  // Handle the time fields
+  // เก็บข้อมูลเวลาจากคำขอโดยตรง
   if (req.body.pickupTime) {
-    // Store pickupTime as a separate field
     req.body.pickupTime = req.body.pickupTime;
   }
 
   if (req.body.returnTime) {
-    // Store returnTime as a separate field
     req.body.returnTime = req.body.returnTime;
   }
 
-  // If updating dates, recalculate duration using the correct function
-  if (req.body.startDate && req.body.returnDate) {
-    // Import the calculateRentalDuration function
-    const { calculateRentalDuration } = require("../utils/rentalUtils");
-
-    // Calculate new duration with time consideration
-    const duration = calculateRentalDuration(
-      req.body.startDate,
-      req.body.returnDate,
-      req.body.pickupTime,
-      req.body.returnTime
-    );
-
-    // Add duration to request body for storage
-    req.body.duration = duration;
-
-    // Recalculate prices if needed
-    if (rent.car && typeof rent.car === "object" && rent.car.dailyRate) {
-      // Update base price
-      req.body.price = rent.car.dailyRate * duration;
-
-      // If we need to recalculate service prices, we would do that here
-      // This would require fetching the services and applying their rates
-
-      // If needed, recalculate discounts and final price
-    }
-  }
-
-  // Update the rent with new data
+  // อัพเดทข้อมูลโดยตรง โดยไม่คำนวณระยะเวลาใหม่
   rent = await Rent.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
