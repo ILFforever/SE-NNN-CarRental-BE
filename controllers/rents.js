@@ -92,6 +92,18 @@ exports.getAllRents = asyncHandler(async (req, res) => {
 
     let matchFilters = {};
 
+    // Search query handling
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      matchFilters.$or = [
+        { 'userDetails.name': searchRegex },
+        { 'userDetails.email': searchRegex },
+        { 'carDetails.license_plate': searchRegex },
+        { 'carDetails.brand': searchRegex },
+        { 'carDetails.model': searchRegex }
+      ];
+    }
+
     // If provider, filter to only their cars
     if (isProvider) {
       const providerId = req.provider.id;
@@ -134,35 +146,9 @@ exports.getAllRents = asyncHandler(async (req, res) => {
       matchFilters.$and = dateConditions;
     }
 
-    // Optional sorting
-    let sort = { createdAt: -1 };
-    if (req.query.sort) {
-      const sortField = req.query.sort.startsWith("-")
-        ? { [req.query.sort.slice(1)]: -1 }
-        : { [req.query.sort]: 1 };
-      sort = sortField;
-    }
-
     // Base aggregation pipeline
     const pipeline = [
       { $match: matchFilters },
-      {
-        $addFields: {
-          statusPriority: {
-            $switch: {
-              branches: [
-                {
-                  case: { $in: ["$status", ["active", "pending", "unpaid"]] },
-                  then: 1,
-                },
-                { case: { $eq: ["$status", "completed"] }, then: 2 },
-                { case: { $eq: ["$status", "cancelled"] }, then: 3 },
-              ],
-              default: 4,
-            },
-          },
-        },
-      },
       {
         $lookup: {
           from: "cars",
@@ -181,66 +167,115 @@ exports.getAllRents = asyncHandler(async (req, res) => {
         },
       },
       { $unwind: { path: "$userDetails", preserveNullAndEmptyArrays: true } },
-      { $sort: sort },
-      { $skip: skip },
-      { $limit: limit },
+      {
+        $lookup: {
+          from: "car_providers",
+          localField: "carDetails.provider_id",
+          foreignField: "_id",
+          as: "providerDetails",
+        },
+      },
+      { $unwind: { path: "$providerDetails", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          statusPriority: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$status", "pending"] }, then: 1 },
+                { case: { $eq: ["$status", "active"] }, then: 2 },
+                { case: { $eq: ["$status", "unpaid"] }, then: 3 },
+                { case: { $eq: ["$status", "completed"] }, then: 4 },
+                { case: { $eq: ["$status", "cancelled"] }, then: 5 },
+              ],
+              default: 6,
+            },
+          },
+        },
+      },
+      { $sort: { createdAt: -1 } },
+      {
+        $facet: {
+          metadata: [{ $count: "totalCount" }],
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                startDate: 1,
+                returnDate: 1,
+                actualReturnDate: 1,
+                status: 1,
+                price: 1,
+                servicePrice: 1,
+                discountAmount: 1,
+                finalPrice: 1,
+                createdAt: 1,
+                isRated: 1,
+                service: 1,
+                notes: 1,
+                additionalCharges: 1,
+                car: {
+                  _id: "$carDetails._id",
+                  license_plate: "$carDetails.license_plate",
+                  brand: "$carDetails.brand",
+                  provider_id: "$carDetails.provider_id",
+                  provider_name: "$providerDetails.name",
+                  model: "$carDetails.model",
+                  type: "$carDetails.type",
+                  color: "$carDetails.color",
+                  available: "$carDetails.available",
+                  dailyRate: "$carDetails.dailyRate",
+                  tier: "$carDetails.tier",
+                  images: "$carDetails.images",
+                },
+                user: {
+                  _id: "$userDetails._id",
+                  name: "$userDetails.name",
+                  email: "$userDetails.email",
+                  telephone_number: "$userDetails.telephone_number",
+                },
+              },
+            },
+          ],
+        },
+      },
       {
         $project: {
-          _id: 1,
-          startDate: 1,
-          returnDate: 1,
-          actualReturnDate: 1,
-          status: 1,
-          price: 1,
-          servicePrice: 1,
-          discountAmount: 1,
-          finalPrice: 1,
-          createdAt: 1,
-          isRated: 1,
-          service: 1,
-          notes: 1,
-          additionalCharges: 1,
-          car: {
-            _id: "$carDetails._id",
-            license_plate: "$carDetails.license_plate",
-            brand: "$carDetails.brand",
-            provider_id: "$carDetails.provider_id",
-            model: "$carDetails.model",
-            type: "$carDetails.type",
-            color: "$carDetails.color",
-            manufactureDate: "$carDetails.manufactureDate",
-            available: "$carDetails.available",
-            dailyRate: "$carDetails.dailyRate",
-            tier: "$carDetails.tier",
-            images: "$carDetails.images",
-          },
-          user: {
-            _id: "$userDetails._id",
-            name: "$userDetails.name",
-            email: "$userDetails.email",
-            telephone_number: "$userDetails.telephone_number",
-          },
+          data: "$data",
+          totalCount: { $arrayElemAt: ["$metadata.totalCount", 0] },
+          count: { $size: "$data" },
         },
       },
     ];
 
-    const rents = await Rent.aggregate(pipeline);
-    const totalCount = await Rent.countDocuments(matchFilters);
+    const results = await Rent.aggregate(pipeline);
 
+    // Prepare pagination info
+    const totalCount = results[0]?.totalCount || 0;
+    const count = results[0]?.count || 0;
     const pagination = {};
-    if (skip + limit < totalCount) {
+
+    if (skip + count < totalCount) {
       pagination.next = {
         page: page + 1,
         limit,
       };
     }
 
+    if (skip > 0) {
+      pagination.prev = {
+        page: page - 1,
+        limit,
+      };
+    }
+
     res.status(200).json({
       success: true,
-      count: rents.length,
+      count,
       totalCount,
       pagination,
-      data: rents,
+      data: results[0]?.data || [],
     });
   } catch (err) {
     console.error(`Error fetching rentals: ${err.message}`);
