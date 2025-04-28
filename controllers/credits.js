@@ -1059,9 +1059,20 @@ exports.getAllTransactions = asyncHandler(async (req, res) => {
             query.rental = req.query.rentalId;
         }
 
-        // Search in description
+        // Search in various fields including user details
         if (req.query.search) {
-            query.description = { $regex: req.query.search, $options: 'i' };
+            // Create a more comprehensive search
+            const searchRegex = { $regex: req.query.search, $options: 'i' };
+            
+            // We'll use $or to search across multiple fields and relations
+            query = {
+                ...query,
+                $or: [
+                    { description: searchRegex },
+                    { reference: searchRegex }
+                    // User-related search will be handled through the populate and match pipeline
+                ]
+            };
         }
         
         // Count total documents matching the query
@@ -1085,7 +1096,7 @@ exports.getAllTransactions = asyncHandler(async (req, res) => {
         }
         
         // Execute query with pagination and joins
-        const transactions = await Transaction.find(query)
+        let transactionQuery = Transaction.find(query)
             .populate({
                 path: 'rental',
                 select: 'startDate returnDate status finalPrice car',
@@ -1094,9 +1105,62 @@ exports.getAllTransactions = asyncHandler(async (req, res) => {
                     select: 'brand model license_plate'
                 }
             })
+            .populate({
+                path: 'user',
+                select: 'name email telephone_number tier' // Include user details needed by admin
+            })
             .sort(sort)
             .skip(startIndex)
             .limit(limit);
+        
+        // If search param is provided, also search in user fields
+        if (req.query.search) {
+            const searchRegex = req.query.search;
+            
+            // Use a special approach to search by user fields
+            // This will first find all users matching the criteria
+            const matchingUsers = await User.find({
+                $or: [
+                    { name: { $regex: searchRegex, $options: 'i' } },
+                    { email: { $regex: searchRegex, $options: 'i' } }
+                ]
+            }).select('_id');
+            
+            // Extract just the user IDs
+            const matchingUserIds = matchingUsers.map(user => user._id);
+            
+            // If we found matching users, add them to our query
+            if (matchingUserIds.length > 0) {
+                query = {
+                    ...query,
+                    $or: [
+                        ...(query.$or || []),
+                        { user: { $in: matchingUserIds } }
+                    ]
+                };
+                
+                // Update the transaction query with the new combined query
+                transactionQuery = Transaction.find(query)
+                    .populate({
+                        path: 'rental',
+                        select: 'startDate returnDate status finalPrice car',
+                        populate: {
+                            path: 'car',
+                            select: 'brand model license_plate'
+                        }
+                    })
+                    .populate({
+                        path: 'user',
+                        select: 'name email telephone_number tier'
+                    })
+                    .sort(sort)
+                    .skip(startIndex)
+                    .limit(limit);
+            }
+        }
+        
+        // Execute the final query
+        const transactions = await transactionQuery;
         
         // Calculate pagination info
         const pagination = {};
