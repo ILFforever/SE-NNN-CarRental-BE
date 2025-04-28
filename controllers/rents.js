@@ -5,6 +5,9 @@ const Service = require("../models/Service");
 const Car_Provider = require("../models/Car_Provider");
 const asyncHandler = require("express-async-handler");
 const mongoose = require("mongoose");
+const { validateRateProvider } = require("../helper/rate_provider");
+const { calculateRentalDuration } = require("../helper/duration_time");
+const { tierCalculateDiscount } = require("../helper/tier_calc");
 
 // @desc    Get user's rents (for regular users)
 // @route   GET /api/v1/rents
@@ -396,12 +399,8 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})`,
       });
     }
-
-    const start = new Date(startDate).toISOString();
-    const end = new Date(returnDate).toISOString();
-    const duration =
-      Math.ceil((new Date(end) - new Date(start)) / (1000 * 60 * 60 * 24)) + 1; // to match FE
-
+    
+    const duration = calculateRentalDuration(startDate, returnDate);
     if (duration <= 0) {
       return res
         .status(400)
@@ -423,15 +422,8 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       }
     }
 
-    // Calculate discount amount based on user tier, if not provided
-    const tierDiscountRate = [0, 5, 10, 15, 20][user.tier] || 0; // Tier discount percentage lookup
-    const calculatedDiscountAmount =
-      ((price + servicePrice) * tierDiscountRate) / 100 || 0;
-
     // Use provided discountAmount or calculate it
-    const finalDiscountAmount =
-      discountAmount !== undefined ? discountAmount : calculatedDiscountAmount;
-
+    const finalDiscountAmount = tierCalculateDiscount(user.tier, price, servicePrice, discountAmount);
     // Calculate final price
     const finalPrice = price + servicePrice - finalDiscountAmount;
 
@@ -910,7 +902,7 @@ exports.rateProvider = asyncHandler(async (req, res, next) => {
   const { rating } = req.body;
 
   // Validate rating
-  if (!rating || ![1, 2, 3, 4, 5].includes(rating)) {
+  if (!validateRateProvider(rating)) {
     return res.status(400).json({
       success: false,
       message: "Rating must be a number between 1 and 5",
