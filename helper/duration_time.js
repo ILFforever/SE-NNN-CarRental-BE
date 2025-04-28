@@ -1,52 +1,49 @@
-// First, you need to import dayjs and its plugins at the top of your file
-const dayjs = require('dayjs');
-const customParseFormat = require('dayjs/plugin/customParseFormat');
-const isSameOrBefore = require('dayjs/plugin/isSameOrBefore');
-const isSameOrAfter = require('dayjs/plugin/isSameOrAfter');
-
-// Add the required plugins
-dayjs.extend(customParseFormat);
-dayjs.extend(isSameOrBefore);
-dayjs.extend(isSameOrAfter);
-
-// Refactored function to combine date and time using dayjs
 exports.combineDateTime = (dateStr, timeStr) => {
-  // Create a dayjs object from the date string
-  let date = dayjs(dateStr);
+  const date = new Date(dateStr);
   
-  // If time string is provided and valid, parse and set the time
+  // If time string is provided and valid
   if (timeStr && typeof timeStr === 'string') {
     const [hours, minutes] = timeStr.split(':').map(Number);
+    
     // Only set hours and minutes if they are valid numbers
     if (!isNaN(hours) && !isNaN(minutes)) {
-      date = date.hour(hours).minute(minutes).second(0);
+      date.setHours(hours);
+      date.setMinutes(minutes);
     }
   }
+  
   return date;
 };
-
-// Refactored function to calculate rental duration using dayjs
 exports.calculateRentalDuration = (startDateTime, returnDateTime) => {
-  // Convert to dayjs objects if they aren't already
-  const start = dayjs(startDateTime);
-  const end = dayjs(returnDateTime);
+  const start = new Date(startDateTime);
+  const end = new Date(returnDateTime);
   
   // Check if start and end are on the same day
-  if (start.format('YYYY-MM-DD') === end.format('YYYY-MM-DD')) {
+  if (
+    start.getFullYear() === end.getFullYear() &&
+    start.getMonth() === end.getMonth() &&
+    start.getDate() === end.getDate()
+  ) {
     return 1; // Same day rentals count as 1 day
   }
   
-  // Calculate days difference (without considering hours)
-  const startDay = start.startOf('day');
-  const endDay = end.startOf('day');
+  // Calculate days difference (keeping the time)
+  const startDay = new Date(start);
+  startDay.setHours(0, 0, 0, 0);
+  const endDay = new Date(end);
+  endDay.setHours(0, 0, 0, 0);
   
   // Get difference in days
-  const daysDiff = endDay.diff(startDay, 'day');
+  const daysDiff = Math.round((endDay - startDay) / (1000 * 60 * 60 * 24));
   
-  // Check if return time is same as pickup time
-  if (start.format('HH:mm') === end.format('HH:mm')) {
-    return daysDiff;
+  // Check if return time is earlier than or exactly the same as pickup time
+  if (
+    end.getHours() < start.getHours() ||
+    (end.getHours() === start.getHours() && end.getMinutes() <= start.getMinutes())
+  ) {
+    return daysDiff; // Return time is earlier or the same as pickup time
   }
   
+  // Return time is later than pickup time
   return daysDiff + 1;
 };
