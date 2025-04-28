@@ -14,9 +14,25 @@ exports.combineDateTime = (dateStr, timeStr) => {
   
   return date;
 };
-exports.calculateRentalDuration = (startDateTime, returnDateTime) => {
+
+exports.calculateRentalDuration = (startDateTime, returnDateTime, pickupTime, returnTime) => {
   const start = new Date(startDateTime);
   const end = new Date(returnDateTime);
+  
+  // If pickup and return times are provided separately, apply them
+  if (pickupTime && typeof pickupTime === 'string') {
+    const [pickupHours, pickupMinutes] = pickupTime.split(':').map(Number);
+    if (!isNaN(pickupHours) && !isNaN(pickupMinutes)) {
+      start.setHours(pickupHours, pickupMinutes, 0, 0);
+    }
+  }
+  
+  if (returnTime && typeof returnTime === 'string') {
+    const [returnHours, returnMinutes] = returnTime.split(':').map(Number);
+    if (!isNaN(returnHours) && !isNaN(returnMinutes)) {
+      end.setHours(returnHours, returnMinutes, 0, 0);
+    }
+  }
   
   // Check if start and end are on the same day
   if (
@@ -27,7 +43,7 @@ exports.calculateRentalDuration = (startDateTime, returnDateTime) => {
     return 1; // Same day rentals count as 1 day
   }
   
-  // Calculate days difference (keeping the time)
+  // Calculate days difference (without time consideration)
   const startDay = new Date(start);
   startDay.setHours(0, 0, 0, 0);
   const endDay = new Date(end);

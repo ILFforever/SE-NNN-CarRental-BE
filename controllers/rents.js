@@ -352,7 +352,9 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     // Fetch the user renting the car
     const user = await User.findById(req.body.user);
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     // Check if the user already has 3 active/pending rentals (Admins can bypass this)
@@ -372,8 +374,8 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       car: carId,
       startDate,
       returnDate,
-      pickupTime,      // Added pickupTime parameter
-      returnTime,      // Added returnTime parameter
+      pickupTime, // Added pickupTime parameter
+      returnTime, // Added returnTime parameter
       price,
       service,
       discountAmount,
@@ -401,11 +403,11 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         message: `User's tier (${user.tier}) is too low to rent this car (Tier ${car.tier})`,
       });
     }
-    
+
     // Combine date and time using dayjs functions
     const start = exports.combineDateTime(startDate, pickupTime);
     const end = exports.combineDateTime(returnDate, returnTime);
-    
+
     const duration = exports.calculateRentalDuration(start, end);
     if (duration <= 0) {
       return res
@@ -429,7 +431,12 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     }
 
     // Use provided discountAmount or calculate it
-    const finalDiscountAmount = tierCalculateDiscount(user.tier, price, servicePrice, discountAmount);
+    const finalDiscountAmount = tierCalculateDiscount(
+      user.tier,
+      price,
+      servicePrice,
+      discountAmount
+    );
     // Calculate final price
     const finalPrice = price + servicePrice - finalDiscountAmount;
 
@@ -446,7 +453,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     // Handle deposit payment if requested
     let depositAmount = 0;
     let creditTransaction = null;
-    
+
     if (payDeposit) {
       // Calculate 10% deposit amount and round to 2 decimal places
       depositAmount = Math.round(finalPrice * 0.1 * 100) / 100;
@@ -461,18 +468,18 @@ exports.addRent = asyncHandler(async (req, res, next) => {
 
       // Create the rental record first to get the rental ID
       const rent = await Rent.create(req.body);
-      
+
       // Use the credits controller's useCredits function
-      const creditsController = require('../controllers/credits');
-      
+      const creditsController = require("../controllers/credits");
+
       // Create a mock request for the useCredits function
       const creditReq = {
         user: { id: user._id },
         body: {
           amount: depositAmount,
           description: `10% deposit for rental #${rent._id} - ${car.brand} ${car.model}`,
-          reference: `rental_deposit_${rent._id}`
-        }
+          reference: `rental_deposit_${rent._id}`,
+        },
       };
 
       // Create a mock response that captures the result
@@ -482,8 +489,8 @@ exports.addRent = asyncHandler(async (req, res, next) => {
           json: (data) => {
             creditResult = { status: code, ...data };
             return creditRes;
-          }
-        })
+          },
+        }),
       };
 
       // Call useCredits from the credits controller
@@ -497,7 +504,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         await Rent.findByIdAndDelete(rent._id);
         return res.status(creditResult?.status || 400).json({
           success: false,
-          message: creditResult?.message || 'Failed to process deposit payment'
+          message: creditResult?.message || "Failed to process deposit payment",
         });
       }
 
@@ -513,32 +520,28 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         depositAmount: depositAmount,
         remainingCredits: creditResult.data.credits,
         transaction: creditResult.data.transaction,
-        data: rent
+        data: rent,
       });
-
     } else {
       // No deposit payment - create rental normally
       const rent = await Rent.create(req.body);
-      
+
       res.status(201).json({
         success: true,
         totalPrice: finalPrice,
-        data: rent
+        data: rent,
       });
     }
-
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 });
-
-// @desc    Update rent
-// @route   PUT /api/v1/rents/:id
-// @access  Private
-// Updated updateRent function with provider access
+// @desc Update rent
+// @route PUT /api/v1/rents/:id
+// @access Private
 exports.updateRent = asyncHandler(async (req, res, next) => {
   let rent = await Rent.findById(req.params.id).populate({
     path: "car",
@@ -554,7 +557,6 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
 
   // Check authorization for users
   let isAuthorized = false;
-
   if (req.user) {
     // Regular users can only update their own rentals
     if (rent.user.toString() === req.user.id) {
@@ -590,6 +592,46 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
     });
   }
 
+  // Handle the time fields
+  if (req.body.pickupTime) {
+    // Store pickupTime as a separate field
+    req.body.pickupTime = req.body.pickupTime;
+  }
+
+  if (req.body.returnTime) {
+    // Store returnTime as a separate field
+    req.body.returnTime = req.body.returnTime;
+  }
+
+  // If updating dates, recalculate duration using the correct function
+  if (req.body.startDate && req.body.returnDate) {
+    // Import the calculateRentalDuration function
+    const { calculateRentalDuration } = require("../utils/rentalUtils");
+
+    // Calculate new duration with time consideration
+    const duration = calculateRentalDuration(
+      req.body.startDate,
+      req.body.returnDate,
+      req.body.pickupTime,
+      req.body.returnTime
+    );
+
+    // Add duration to request body for storage
+    req.body.duration = duration;
+
+    // Recalculate prices if needed
+    if (rent.car && typeof rent.car === "object" && rent.car.dailyRate) {
+      // Update base price
+      req.body.price = rent.car.dailyRate * duration;
+
+      // If we need to recalculate service prices, we would do that here
+      // This would require fetching the services and applying their rates
+
+      // If needed, recalculate discounts and final price
+    }
+  }
+
+  // Update the rent with new data
   rent = await Rent.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true,
