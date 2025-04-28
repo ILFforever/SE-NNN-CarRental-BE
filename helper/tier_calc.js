@@ -1,6 +1,6 @@
 const TIER_LEVEL = [0, 5, 10, 15, 20];
 
-exports.tierCalculate = function (tier, price, servicePrice, discountAmount) {
+exports.tierCalculateDiscount = function (tier, price, servicePrice, discountAmount) {
   if (tier < 0 || tier > TIER_LEVEL.length - 1) {
     return 0;
   }
