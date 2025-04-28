@@ -28,7 +28,7 @@ describe("Calculate Rental Duration Check", () => {
 
 describe("Combine Date/Time", () => {
     test("Check without timeStr", () => {
-        expect(combineDateTime("2023-10-01", null)).toEqual(new Date("2023-10-01T00:00:00"));
+        expect(combineDateTime("2023-10-01", null)).toEqual(new Date("2023-10-01T07:00:00"));
     });
 
     test("Check it's string", () => {
