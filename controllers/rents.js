@@ -8,6 +8,7 @@ const mongoose = require("mongoose");
 const { validateRateProvider } = require("../helper/rate_provider");
 const { calculateRentalDuration } = require("../helper/duration_time");
 const { tierCalculateDiscount } = require("../helper/tier_calc");
+const { combineDateTime } = require("../helper/duration_time");
 
 // @desc    Get user's rents (for regular users)
 // @route   GET /api/v1/rents
@@ -372,6 +373,8 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       car: carId,
       startDate,
       returnDate,
+      pickupTime,      // Added pickupTime parameter
+      returnTime,      // Added returnTime parameter
       price,
       service,
       discountAmount,
@@ -400,7 +403,11 @@ exports.addRent = asyncHandler(async (req, res, next) => {
       });
     }
     
-    const duration = calculateRentalDuration(startDate, returnDate);
+    // Combine date and time for more accurate duration calculation
+    const start = combineDateTime(startDate, pickupTime);
+    const end = combineDateTime(returnDate, returnTime);
+    
+    const duration = calculateRentalDuration(start, end);
     if (duration <= 0) {
       return res
         .status(400)
@@ -434,6 +441,8 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     req.body.finalPrice = finalPrice;
     req.body.startDate = start;
     req.body.returnDate = end;
+    req.body.pickupTime = pickupTime;    // Store pickupTime in the rent document
+    req.body.returnTime = returnTime;    // Store returnTime in the rent document
 
     // Handle deposit payment if requested
     let depositAmount = 0;
