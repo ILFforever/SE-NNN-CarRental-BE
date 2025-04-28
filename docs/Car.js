@@ -142,6 +142,8 @@
  *   post:
  *     summary: Create a new car
  *     tags: [Cars]
+ *     security:
+ *     - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -215,6 +217,8 @@
  *   put:
  *     summary: Update a car
  *     tags: [Cars]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -273,6 +277,8 @@
  *   delete:
  *     summary: Delete a car
  *     tags: [Cars]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -357,6 +363,8 @@
  *   patch:
  *     summary: Toggle car availability
  *     tags: [Cars]
+ *     security:
+ *     - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
