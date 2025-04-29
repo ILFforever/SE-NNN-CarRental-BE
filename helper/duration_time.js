@@ -10,6 +10,11 @@ exports.combineDateTime = (dateStr, timeStr) => {
       date.setHours(hours);
       date.setMinutes(minutes);
     }
+  } else {
+    date.setHours(7);
+    date.setMinutes(0);
+    date.setSeconds(0);
+    date.setMilliseconds(0);
   }
   
   return date;
