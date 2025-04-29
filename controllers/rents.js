@@ -582,7 +582,7 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
   try {
     let rent = await Rent.findById(req.params.id).populate({
       path: "car",
-      select: "provider_id dailyRate",
+      select: "provider_id dailyRate tier",
     });
     
     if (!rent) {
@@ -672,6 +672,177 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
       returnTime: updateData.returnTime
     });
     
+    // Check if we need to recalculate deposit
+    // Only recalculate if price changed or we have date changes that would affect duration
+    let depositUpdate = null;
+    
+    // Determine if we need to recalculate (price changed directly or dates changed)
+    const priceChanged = updateData.price !== undefined;
+    const datesChanged = (updateData.startDate !== undefined || updateData.returnDate !== undefined);
+    
+    if ((priceChanged || datesChanged) && rent.depositAmount > 0) {
+      // Fetch the user for credit operations
+      const user = await User.findById(rent.user);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+      
+      // Calculate new price if not provided directly
+      let newPrice = updateData.price;
+      if (!newPrice && datesChanged) {
+        // If dates changed but price not provided, we need to recalculate
+        const start = updateData.startDate ? new Date(updateData.startDate) : new Date(rent.startDate);
+        const end = updateData.returnDate ? new Date(updateData.returnDate) : new Date(rent.returnDate);
+        
+        // Get car details if not already populated
+        const car = typeof rent.car === "object" ? rent.car : await Car.findById(rent.car);
+        if (!car) {
+          return res.status(404).json({
+            success: false,
+            message: "Car details not found",
+          });
+        }
+        
+        // Calculate duration in days
+        const duration = calculateRentalDuration(start, end);
+        if (duration <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: "End date must be after start date",
+          });
+        }
+        
+        // Calculate new price based on car daily rate and duration
+        newPrice = car.dailyRate * duration;
+      }
+      
+      // If still no new price, use existing rent price
+      if (!newPrice) {
+        newPrice = rent.price;
+      }
+      
+      // Calculate service price - carry over from existing or recalculate if needed
+      let newServicePrice = updateData.servicePrice !== undefined ? updateData.servicePrice : rent.servicePrice || 0;
+      
+      // Calculate discount amount - carry over from existing or recalculate if needed
+      let newDiscountAmount = updateData.discountAmount !== undefined ? updateData.discountAmount : rent.discountAmount || 0;
+      
+      // Calculate final price
+      const newFinalPrice = newPrice + newServicePrice - newDiscountAmount;
+      
+      // Calculate new deposit (10% of new final price)
+      const newDepositAmount = Math.round(newFinalPrice * 0.1 * 100) / 100;
+      
+      // Calculate deposit difference
+      const depositDifference = newDepositAmount - rent.depositAmount;
+      
+      if (depositDifference !== 0) {
+        // Import credits controller
+        const creditsController = require("../controllers/credits");
+        
+        // Handle credit adjustments
+        if (depositDifference > 0) {
+          // Need to charge additional deposit
+          const creditReq = {
+            user: { id: user._id },
+            body: {
+              amount: depositDifference,
+              description: `Additional deposit for updated rental #${rent._id}`,
+              reference: `rental_deposit_update_${rent._id}`,
+            },
+          };
+          
+          // Mock response
+          let creditResult = null;
+          const creditRes = {
+            status: (code) => ({
+              json: (data) => {
+                creditResult = { status: code, ...data };
+                return creditRes;
+              },
+            }),
+          };
+          
+          // Deduct additional deposit from user credits
+          await creditsController.useCredits(creditReq, creditRes, (err) => {
+            if (err) throw err;
+          });
+          
+          // Check if credit deduction was successful
+          if (!creditResult || !creditResult.success) {
+            return res.status(creditResult?.status || 400).json({
+              success: false,
+              message: creditResult?.message || "Failed to process additional deposit payment",
+            });
+          }
+          
+          // Store transaction info
+          depositUpdate = {
+            depositAmount: newDepositAmount,
+            lastDepositTransaction: creditResult.data.transaction._id,
+            depositTransactionDifference: depositDifference,
+          };
+          
+        } else if (depositDifference < 0) {
+          // Need to refund some deposit (booking cost decreased)
+          const creditReq = {
+            user: { id: user._id },
+            body: {
+              amount: Math.abs(depositDifference),
+              description: `Refund for deposit difference on rental #${rent._id}`,
+              reference: `rental_deposit_refund_${rent._id}`,
+            },
+          };
+          
+          // Mock response
+          let creditResult = null;
+          const creditRes = {
+            status: (code) => ({
+              json: (data) => {
+                creditResult = { status: code, ...data };
+                return creditRes;
+              },
+            }),
+          };
+          
+          // Add refunded deposit to user credits
+          await creditsController.addCredits(creditReq, creditRes, (err) => {
+            if (err) throw err;
+          });
+          
+          // Check if credit addition was successful
+          if (!creditResult || !creditResult.success) {
+            return res.status(creditResult?.status || 400).json({
+              success: false,
+              message: creditResult?.message || "Failed to process deposit refund",
+            });
+          }
+          
+          // Store transaction info
+          depositUpdate = {
+            depositAmount: newDepositAmount,
+            lastDepositTransaction: creditResult.data.transaction._id,
+            depositTransactionDifference: depositDifference,
+          };
+        }
+        
+        // Update price fields if they've changed
+        if (newPrice !== rent.price) updateData.price = newPrice;
+        if (newServicePrice !== rent.servicePrice) updateData.servicePrice = newServicePrice;
+        if (newDiscountAmount !== rent.discountAmount) updateData.discountAmount = newDiscountAmount;
+        if (newFinalPrice !== rent.finalPrice) updateData.finalPrice = newFinalPrice;
+        
+        // Add deposit information to update data
+        if (depositUpdate) {
+          updateData.depositAmount = depositUpdate.depositAmount;
+          updateData.lastDepositTransaction = depositUpdate.lastDepositTransaction;
+        }
+      }
+    }
+    
     // Update the rent with new data
     rent = await Rent.findByIdAndUpdate(req.params.id, updateData, {
       new: true
@@ -689,14 +860,28 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
       startDate: rent.startDate,
       pickupTime: rent.pickupTime,
       returnDate: rent.returnDate,
-      returnTime: rent.returnTime
+      returnTime: rent.returnTime,
+      price: rent.price,
+      finalPrice: rent.finalPrice,
+      depositAmount: rent.depositAmount
     });
     
-    // Send the updated rent back to the client
-    res.status(200).json({
+    // Prepare response with deposit information if applicable
+    const response = {
       success: true,
       data: rent,
-    });
+    };
+    
+    if (depositUpdate) {
+      response.depositUpdate = {
+        newDepositAmount: depositUpdate.depositAmount,
+        depositDifference: depositUpdate.depositTransactionDifference,
+        transaction: depositUpdate.lastDepositTransaction
+      };
+    }
+    
+    // Send the updated rent back to the client
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error in updateRent:", error);
     res.status(500).json({
