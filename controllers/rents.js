@@ -574,7 +574,6 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     });
   }
 });
-
 // @desc Update rent
 // @route PUT /api/v1/rents/:id
 // @access Private
@@ -636,6 +635,7 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
     const updateData = { ...req.body };
     
     // Handle date and time integration for startDate
+    // We don't store pickupTime in the schema, but we use it to modify startDate
     if (req.body.startDate && req.body.pickupTime) {
       const startDateObj = new Date(req.body.startDate);
       const [pickupHours, pickupMinutes] = req.body.pickupTime.split(':').map(Number);
@@ -646,11 +646,12 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
         updateData.startDate = startDateObj.toISOString();
       }
       
-      // Store the pickupTime separately as well
-      updateData.pickupTime = req.body.pickupTime;
+      // Remove pickupTime from updateData as it's not in the schema
+      delete updateData.pickupTime;
     }
     
     // Handle date and time integration for returnDate
+    // We don't store returnTime in the schema, but we use it to modify returnDate
     if (req.body.returnDate && req.body.returnTime) {
       const returnDateObj = new Date(req.body.returnDate);
       const [returnHours, returnMinutes] = req.body.returnTime.split(':').map(Number);
@@ -661,35 +662,25 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
         updateData.returnDate = returnDateObj.toISOString();
       }
       
-      // Store the returnTime separately as well
-      updateData.returnTime = req.body.returnTime;
+      // Remove returnTime from updateData as it's not in the schema
+      delete updateData.returnTime;
     }
     
     console.log("Processed update data:", {
       startDate: updateData.startDate,
-      pickupTime: updateData.pickupTime,
-      returnDate: updateData.returnDate,
-      returnTime: updateData.returnTime
+      returnDate: updateData.returnDate
     });
     
-    // Check if we need to recalculate deposit
+    // Check if we need to recalculate prices and deposit
     // Only recalculate if price changed or we have date changes that would affect duration
+    let priceUpdate = null;
     let depositUpdate = null;
     
     // Determine if we need to recalculate (price changed directly or dates changed)
     const priceChanged = updateData.price !== undefined;
     const datesChanged = (updateData.startDate !== undefined || updateData.returnDate !== undefined);
     
-    if ((priceChanged || datesChanged) && rent.depositAmount > 0) {
-      // Fetch the user for credit operations
-      const user = await User.findById(rent.user);
-      if (!user) {
-        return res.status(404).json({
-          success: false,
-          message: "User not found",
-        });
-      }
-      
+    if (priceChanged || datesChanged) {
       // Calculate new price if not provided directly
       let newPrice = updateData.price;
       if (!newPrice && datesChanged) {
@@ -733,13 +724,24 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
       // Calculate final price
       const newFinalPrice = newPrice + newServicePrice - newDiscountAmount;
       
-      // Calculate new deposit (10% of new final price)
+      // Handle deposit calculations and credit adjustments
+      // Calculate deposit (10% of final price)
+      const currentDepositAmount = rent.additionalCharges?.deposit || 0;
       const newDepositAmount = Math.round(newFinalPrice * 0.1 * 100) / 100;
       
       // Calculate deposit difference
-      const depositDifference = newDepositAmount - rent.depositAmount;
+      const depositDifference = newDepositAmount - currentDepositAmount;
       
       if (depositDifference !== 0) {
+        // Fetch the user for credit operations
+        const user = await User.findById(rent.user);
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            message: "User not found",
+          });
+        }
+        
         // Import credits controller
         const creditsController = require("../controllers/credits");
         
@@ -779,11 +781,17 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
             });
           }
           
-          // Store transaction info
+          // Store transaction info in additionalCharges
+          if (!updateData.additionalCharges) {
+            updateData.additionalCharges = rent.additionalCharges || {};
+          }
+          updateData.additionalCharges.deposit = newDepositAmount;
+          updateData.additionalCharges.lastDepositTransaction = creditResult.data.transaction._id;
+          
           depositUpdate = {
             depositAmount: newDepositAmount,
             lastDepositTransaction: creditResult.data.transaction._id,
-            depositTransactionDifference: depositDifference,
+            depositTransactionDifference: depositDifference
           };
           
         } else if (depositDifference < 0) {
@@ -821,26 +829,33 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
             });
           }
           
-          // Store transaction info
+          // Store transaction info in additionalCharges
+          if (!updateData.additionalCharges) {
+            updateData.additionalCharges = rent.additionalCharges || {};
+          }
+          updateData.additionalCharges.deposit = newDepositAmount;
+          updateData.additionalCharges.lastDepositTransaction = creditResult.data.transaction._id;
+          
           depositUpdate = {
             depositAmount: newDepositAmount,
             lastDepositTransaction: creditResult.data.transaction._id,
-            depositTransactionDifference: depositDifference,
+            depositTransactionDifference: depositDifference
           };
         }
-        
-        // Update price fields if they've changed
-        if (newPrice !== rent.price) updateData.price = newPrice;
-        if (newServicePrice !== rent.servicePrice) updateData.servicePrice = newServicePrice;
-        if (newDiscountAmount !== rent.discountAmount) updateData.discountAmount = newDiscountAmount;
-        if (newFinalPrice !== rent.finalPrice) updateData.finalPrice = newFinalPrice;
-        
-        // Add deposit information to update data
-        if (depositUpdate) {
-          updateData.depositAmount = depositUpdate.depositAmount;
-          updateData.lastDepositTransaction = depositUpdate.lastDepositTransaction;
-        }
       }
+      
+      // Update price fields if they've changed
+      if (newPrice !== rent.price) updateData.price = newPrice;
+      if (newServicePrice !== rent.servicePrice) updateData.servicePrice = newServicePrice;
+      if (newDiscountAmount !== rent.discountAmount) updateData.discountAmount = newDiscountAmount;
+      if (newFinalPrice !== rent.finalPrice) updateData.finalPrice = newFinalPrice;
+      
+      priceUpdate = {
+        newPrice,
+        newServicePrice,
+        newDiscountAmount,
+        newFinalPrice
+      };
     }
     
     // Update the rent with new data
@@ -858,19 +873,25 @@ exports.updateRent = asyncHandler(async (req, res, next) => {
     // Check the updated values
     console.log("Updated rent:", {
       startDate: rent.startDate,
-      pickupTime: rent.pickupTime,
       returnDate: rent.returnDate,
-      returnTime: rent.returnTime,
       price: rent.price,
-      finalPrice: rent.finalPrice,
-      depositAmount: rent.depositAmount
+      finalPrice: rent.finalPrice
     });
     
-    // Prepare response with deposit information if applicable
+    // Prepare response
     const response = {
       success: true,
       data: rent,
     };
+    
+    if (priceUpdate) {
+      response.priceUpdate = {
+        price: priceUpdate.newPrice,
+        servicePrice: priceUpdate.newServicePrice,
+        discountAmount: priceUpdate.newDiscountAmount,
+        finalPrice: priceUpdate.newFinalPrice
+      };
+    }
     
     if (depositUpdate) {
       response.depositUpdate = {
