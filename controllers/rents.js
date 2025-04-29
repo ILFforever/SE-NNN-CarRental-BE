@@ -484,6 +484,9 @@ exports.addRent = asyncHandler(async (req, res, next) => {
     req.body.returnDate = end.toISOString();
     req.body.pickupTime = pickupTime;
     req.body.returnTime = returnTime;
+    
+    // เตรียม additionalCharges object (สร้างไว้ทุกกรณี แม้ไม่มี deposit)
+    req.body.additionalCharges = {};
 
     // Handle deposit payment if requested
     let depositAmount = 0;
@@ -500,6 +503,9 @@ exports.addRent = asyncHandler(async (req, res, next) => {
           message: `Insufficient credits. You need ${depositAmount} credits to pay the deposit for this reservation.`,
         });
       }
+
+      // กำหนด deposit ใน additionalCharges
+      req.body.additionalCharges.deposit = depositAmount;
 
       // Create the rental record first to get the rental ID
       const rent = await Rent.create(req.body);
@@ -543,10 +549,21 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         });
       }
 
-      // Update the rental with deposit information
+      // อัปเดตการเก็บข้อมูล deposit (ปรับปรุงทั้งแบบเก่าและแบบใหม่)
       rent.depositAmount = depositAmount;
       rent.depositTransaction = creditResult.data.transaction._id;
+      
+      // เพิ่มข้อมูลใน additionalCharges
+      if (!rent.additionalCharges) {
+        rent.additionalCharges = {};
+      }
+      rent.additionalCharges.deposit = depositAmount;
+      rent.additionalCharges.lastDepositTransaction = creditResult.data.transaction._id;
+      
       await rent.save();
+
+      // ดึงข้อมูลที่อัปเดตแล้วมาอีกครั้งเพื่อให้แน่ใจว่ามีข้อมูลครบถ้วน
+      const updatedRent = await Rent.findById(rent._id);
 
       // Return the rental with deposit information
       res.status(201).json({
@@ -555,7 +572,7 @@ exports.addRent = asyncHandler(async (req, res, next) => {
         depositAmount: depositAmount,
         remainingCredits: creditResult.data.credits,
         transaction: creditResult.data.transaction,
-        data: rent,
+        data: updatedRent,
       });
     } else {
       // No deposit payment - create rental normally
